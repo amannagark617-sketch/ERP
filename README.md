@@ -100,7 +100,7 @@ Never run that function once real data is in.
 3. Log in as Purchase → **New PO**. The flow is live.
 
 ### Updating an existing install to a newer version
-Paste the new `Code.gs` over the old one, run **`setup`** (it only *adds* what is missing: new Settings rows such as the letterhead details, new columns such as *PO PDF sent*; it never changes your data), then **Deploy → Manage deployments → ✏️ → New version → Deploy**. Re-deploy the app (AI Studio / `dist/`) too when the screens changed.
+Paste the new `Code.gs` over the old one, run **`setup`** (it only *adds* what is missing: new Settings rows and columns such as *PO PDF sent*, and it tidies up settings rows that older releases created for a letterhead the PO no longer has; it never changes your data), then **Deploy → Manage deployments → ✏️ → New version → Deploy**. Re-deploy the app (AI Studio / `dist/`) too when the screens changed.
 
 ### Already ran the earlier version (two spreadsheets)?
 Nothing real is lost – just start clean. Easiest (keeps your Web app URL):
@@ -120,7 +120,7 @@ Nothing real is lost – just start clean. Easiest (keeps your Web app URL):
 | **Change a price** | Same screen → change the number → Save. Open POs keep the price they were raised with; new POs use the new price |
 | **Add / remove a vendor** | Vendors → New / Edit (set *Active = No* to retire) |
 | **Get the PO as a PDF** | Open the PO → **⬇ Download PO (PDF)**. Works at every stage; until the PO is approved the PDF carries a red *DRAFT – not for issue* watermark. When you press **Mark sent**, the exact PDF is also saved in Drive and linked on the PO ("PO copy sent") |
-| **Fill in / change the letterhead details** (address, GSTIN, phone, terms printed on every PO) | `Settings` tab → `CompanyLegalName`, `CompanyAddress` (use `|` for a new line), `CompanyGSTIN`, `CompanyCIN`, `CompanyPhone`, `CompanyEmail`, `CompanyWebsite`, `DeliverTo`, `PoSignatory`, `PoTerms` (use `|` between points) |
+| **Change the standard terms or the signature text on every PO** | `Settings` tab → `PoTerms` (use `|` between points) and `PoSignatory` |
 | **Receive goods** | Goods Receipt → pick the PO → enter invoice → saved as **Stock IN** automatically |
 | **Issue material to production** | Stock → **Issue stock** (item, qty, department/purpose). Can't issue more than is on hand |
 | **Fix a stock count** | Stock → **Adjust stock** (needs a reason; only roles with *Adjust Stock*) |
@@ -133,11 +133,13 @@ Nothing real is lost – just start clean. Easiest (keeps your Web app URL):
 
 ## The PO document
 
-A4, one or more pages, built in the browser (nothing leaves your Google account): letterhead with the Little Nap logo and company details,
-vendor box (GSTIN, PAN, MSME/Udyam), order details (delivery date, payment terms, advance, deliver-to), items table in Indian number format (₹ 4,80,000.00),
-**amount in words**, terms & conditions, who prepared and who approved it (with dates), signature line, and a footer with CIN/GSTIN and page numbers on every page.
-Company details come from the `Settings` tab and start **blank** (only the name "Little Nap Recliners" is pre-filled) – type your own address, GSTIN, phone and email there once. Look and feel follow the HR screening app: white page, charcoal text, the logo's red as the single accent, **Inter** font.
-To change the logo, replace `public/logo.png` (any PNG on a white or transparent background); the fonts are in `public/fonts/` (Inter, SIL Open Font License).
+A4, one or more pages, built in your browser (nothing leaves your Google account). It is branded **Little Nap Recliners** with the logo only – no company address block:
+logo and **PURCHASE ORDER** heading with the PO number in the logo's red, a vendor box (GSTIN, PAN, contact, MSME/Udyam from the vendor master), order details
+(delivery date, payment terms, advance, prepared by), a dark-header items table in Indian number format (₹ 4,80,000.00) with the order value, an **amount-in-words** band,
+an **advance payment** callout when an advance is due, **special instructions** (the PO's own terms), numbered general terms, and a Prepared by / Approved by (names and dates) / authorised-signatory block.
+Every page has a footer with the PO number and "Page 1 of 3"; continuation pages get a compact header. Until approval a red **DRAFT – not approved** watermark is printed.
+Look and feel follow the HR screening app: white page, charcoal text, the logo's red as the single accent, **Inter** font.
+To change the logo replace `public/logo.png` (PNG on white or transparent); fonts are in `public/fonts/` (Inter, SIL Open Font License).
 Emailing/WhatsApp-ing the PDF is still a manual attach (a browser can't attach files to `mailto:`); an automatic "send from the app" option would need Gmail permission in the script – ask if you want it.
 
 ## Built to run for years without changes

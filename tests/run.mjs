@@ -356,28 +356,25 @@ await test('sample data loads into an empty system, is consistent, and works wit
 });
 
 console.log('PO letterhead settings & archived PDF');
-await test('letterhead settings exist but start blank; setup() adds missing ones, keeps your edits, and clears only the wrongly pre-filled values of an earlier release', () => {
+await test('the PO has no letterhead: no company-detail settings; old letterhead rows are removed by setup() unless you typed your own value', () => {
   const h = M.createMemHost();
   M.setup(h);
   const get = () => Object.fromEntries(h.read('Settings').map(r => [r.Setting, r.Value]));
-  for (const k of ['CompanyLegalName', 'CompanyAddress', 'CompanyGSTIN', 'CompanyCIN', 'CompanyPhone', 'CompanyEmail', 'CompanyWebsite', 'DeliverTo', 'PoSignatory', 'PoTerms']) assert.ok(k in get(), k);
-  assert.equal(get().CompanyLegalName, 'Little Nap Recliners');
-  for (const k of ['CompanyAddress', 'CompanyGSTIN', 'CompanyCIN', 'CompanyPhone', 'CompanyEmail', 'CompanyWebsite', 'DeliverTo']) assert.equal(get()[k], '', k + ' starts blank');
+  for (const k of ['PoSignatory', 'PoTerms', 'CompanyName']) assert.ok(k in get(), k);
+  for (const k of ['CompanyLegalName', 'CompanyAddress', 'CompanyGSTIN', 'CompanyCIN', 'CompanyPhone', 'CompanyEmail', 'CompanyWebsite', 'DeliverTo']) assert.ok(!(k in get()), k + ' not in a fresh sheet');
   assert.ok(!JSON.stringify(get()).match(/Subhav|Dewas|lnsindia|23AAFC|U36999/), 'nobody else\'s company details');
-  const set = (k, v) => h.update('Settings', h.read('Settings').find(r => r.Setting === k).__row, { Value: v });
-  set('CompanyGSTIN', '23AAFCL2047L1ZK');                              // exactly what the earlier release pre-filled
-  set('CompanyLegalName', 'Little Nap Subhav India Pvt. Ltd.');        // ditto
-  set('CompanyPhone', '+91 99999 11111');                              // the owner's own value
-  const gone = h.read('Settings').find(r => r.Setting === 'CompanyCIN'); h.remove('Settings', gone.__row); // an even older sheet lacking a row
+  // a sheet created by the earlier releases, which had those rows (blank, or pre-filled with the wrong company's details)
+  const add = (k, v) => h.append('Settings', { Setting: k, Value: v, Meaning: '' });
+  add('CompanyLegalName', 'Little Nap Subhav India Pvt. Ltd.'); add('CompanyGSTIN', '23AAFCL2047L1ZK'); add('CompanyAddress', ''); add('CompanyEmail', 'accounts@my-own-company.example');
   M.setup(h);
-  assert.equal(get().CompanyGSTIN, '', 'wrong pre-filled GSTIN cleared');
-  assert.equal(get().CompanyLegalName, 'Little Nap Recliners', 'wrong pre-filled name replaced');
-  assert.equal(get().CompanyPhone, '+91 99999 11111', 'owner\'s own value untouched');
-  assert.ok('CompanyCIN' in get(), 'missing row restored');
+  const after = get();
+  for (const k of ['CompanyLegalName', 'CompanyGSTIN', 'CompanyAddress']) assert.ok(!(k in after), k + ' removed');
+  assert.equal(after.CompanyEmail, 'accounts@my-own-company.example', 'a value you typed yourself is kept');
+  assert.equal(after.CompanyName, 'Little Nap Recliners'); assert.ok(after.PoTerms.includes('|'));
   h.update('Users', h.read('Users')[0].__row, { Password: 'Pw-123456' });
   const tk = M.handle(h, { action: 'login', loginId: 'admin', password: 'Pw-123456' }).token;
   const cfg = M.handle(h, { action: 'bootstrap', token: tk }).config.settings;
-  assert.equal(cfg.CompanyPhone, '+91 99999 11111'); assert.ok(cfg.PoTerms.includes('|'));
+  assert.equal(cfg.CompanyName, 'Little Nap Recliners'); assert.ok(cfg.PoTerms.includes('|'));
 });
 await test('the PDF that was sent is stored on the PO (po.send may set it, nothing else about the PO changes)', () => {
   const b = boot('navneet');

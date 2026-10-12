@@ -646,16 +646,16 @@ export function handle(host: Host, req: any): any {
  * Create the tabs/headers and (on a fresh Sheet) the starting configuration. Never overwrites existing rows.
  * `extra` lets tests pre-fill tables; the shipped app starts with no business data at all.
  */
-/** Values an earlier release pre-filled by mistake (another company's details). Cleared on setup() only if still exactly as shipped. */
-const WRONG_DEFAULTS: Record<string, [string, string]> = {
-  CompanyLegalName: ['Little Nap Subhav India Pvt. Ltd.', 'Little Nap Recliners'],
-  CompanyAddress: ['Shree Shubham Logistics Park, 27-28, AB Road Bypass|Dewas, Indore, Madhya Pradesh 455001, India', ''],
-  CompanyGSTIN: ['23AAFCL2047L1ZK', ''],
-  CompanyCIN: ['U36999MP2022PTC063150', ''],
-  CompanyPhone: ['+91 62320 05722', ''],
-  CompanyEmail: ['inquiry@lnsindia.co.in', ''],
-  CompanyWebsite: ['www.lnsindia.co.in', ''],
-  DeliverTo: ['Little Nap Subhav Manufacturing Plant, Shree Shubham Logistics Park, 27-28, AB Road Bypass, Dewas, Madhya Pradesh 455001', ''],
+/**
+ * Settings rows that earlier releases created for a PO letterhead (the PO no longer has one). setup() deletes them when
+ * they are still blank or exactly as that release pre-filled them; anything you typed yourself is left alone (it is just unused).
+ */
+const OLD_LETTERHEAD_ROWS: Record<string, string[]> = {
+  CompanyLegalName: ['', 'Little Nap Recliners', 'Little Nap Subhav India Pvt. Ltd.'],
+  CompanyAddress: ['', 'Shree Shubham Logistics Park, 27-28, AB Road Bypass|Dewas, Indore, Madhya Pradesh 455001, India'],
+  CompanyGSTIN: ['', '23AAFCL2047L1ZK'], CompanyCIN: ['', 'U36999MP2022PTC063150'], CompanyPhone: ['', '+91 62320 05722'],
+  CompanyEmail: ['', 'inquiry@lnsindia.co.in'], CompanyWebsite: ['', 'www.lnsindia.co.in'],
+  DeliverTo: ['', 'Little Nap Subhav Manufacturing Plant, Shree Shubham Logistics Park, 27-28, AB Road Bypass, Dewas, Madhya Pradesh 455001'],
 };
 
 export function setup(host: Host, extra?: Partial<Record<TableKey, any[]>>): string {
@@ -676,10 +676,8 @@ export function setup(host: Host, extra?: Partial<Record<TableKey, any[]>>): str
   fill(configSeed());
   // An older sheet may lack newer Settings rows: add the missing ones (never touching existing values)
   for (const s of configSeed().settings!) if (!db.find('settings', s.key)) db.put('settings', s);
-  for (const key of Object.keys(WRONG_DEFAULTS)) {
-    const row = db.find('settings', key);
-    if (row && row.value === WRONG_DEFAULTS[key][0]) db.put('settings', { ...row, value: WRONG_DEFAULTS[key][1] });
-  }
+  const stale = db.rows('settings').filter(r => OLD_LETTERHEAD_ROWS[r.key] && OLD_LETTERHEAD_ROWS[r.key].indexOf(r.value) >= 0);
+  stale.sort((a, b) => b.__row - a.__row).forEach(r => host.remove(def('settings').sheet, r.__row)); // bottom-up so row numbers stay valid
   return 'Setup complete.';
 }
 

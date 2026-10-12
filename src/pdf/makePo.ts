@@ -27,7 +27,7 @@ function loadAssets(): Promise<PdfAssets> {
 
 const split = (s: string | undefined) => String(s ?? '').split('|').map(x => x.trim()).filter(Boolean);
 
-/** Build the PO as a PDF (letterhead, vendor, items, terms, approvals) from what is on screen + the Settings tab. */
+/** Build the PO as a PDF (logo, vendor, items, terms, approvals) from what is on screen + the Settings tab. */
 export async function makePoPdf(s: AppState, po: PurchaseOrder): Promise<{ data: Uint8Array; filename: string }> {
   const [{ buildPoPdf }, a, history] = await Promise.all([import('./poPdf'), loadAssets(), fetchHistory(po.id).catch(() => [])]);
   const v = vendorOf(s, po.vendorId);
@@ -36,13 +36,10 @@ export async function makePoPdf(s: AppState, po: PurchaseOrder): Promise<{ data:
     .map(h => ({ by: h.by, date: h.time.slice(0, 10) }));
   const issued = po.status === 'Approved' || po.status === 'Sent to Vendor';
   const doc: PoDoc = {
-    company: {
-      legalName: st.CompanyLegalName || cfg.company, brandName: cfg.company, addressLines: split(st.CompanyAddress), gstin: st.CompanyGSTIN || '', cin: st.CompanyCIN || '',
-      phone: st.CompanyPhone || '', email: st.CompanyEmail || '', website: st.CompanyWebsite || '', signatory: st.PoSignatory || 'Authorised Signatory',
-    },
+    company: { brandName: cfg.company, signatory: st.PoSignatory || 'Authorised Signatory' },
     po: {
       poNo: po.poNo, date: po.date, expectedDate: po.expectedDate, terms: po.terms, advanceRequired: po.advanceRequired, advanceAmount: po.advanceAmount,
-      paymentTerms: v ? `${v.paymentTermsDays} days from invoice date` : '—', preparedBy: po.createdBy, department: po.department, deliverTo: st.DeliverTo || split(st.CompanyAddress).join(', '),
+      paymentTerms: v ? `${v.paymentTermsDays} days from invoice date` : '—', preparedBy: po.createdBy, department: po.department,
     },
     vendor: {
       name: v?.name ?? '(vendor)', contact: v?.contact ?? '', email: v?.email ?? '', phone: v?.whatsapp ?? '',

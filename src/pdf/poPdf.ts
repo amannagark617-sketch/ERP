@@ -3,11 +3,8 @@ import autoTable from 'jspdf-autotable';
 import { rupeesInWords } from './words';
 
 export interface PoDoc {
-  company: { legalName: string; brandName: string; addressLines: string[]; gstin: string; cin: string; phone: string; email: string; website: string; signatory: string };
-  po: {
-    poNo: string; date: string; expectedDate: string; terms: string; advanceRequired: boolean; advanceAmount: number;
-    paymentTerms: string; preparedBy: string; department: string; deliverTo: string;
-  };
+  company: { brandName: string; signatory: string };
+  po: { poNo: string; date: string; expectedDate: string; terms: string; advanceRequired: boolean; advanceAmount: number; paymentTerms: string; preparedBy: string; department: string };
   vendor: { name: string; contact: string; email: string; phone: string; address: string; gstin: string; pan: string; msme: boolean; msmeType: string; udyamNo: string };
   lines: { name: string; unit: string; qty: number; price: number }[];
   approvals: { by: string; date: string }[];
@@ -17,15 +14,17 @@ export interface PoDoc {
 }
 export interface PdfAssets { regular: Uint8Array; semibold: Uint8Array; logo: Uint8Array; logoRatio: number }
 
-// Brand palette (from the HR screening app + the Little Nap logo)
-const INK: [number, number, number] = [29, 29, 31];
-const MUTED: [number, number, number] = [110, 110, 115];
-const BORDER: [number, number, number] = [217, 217, 222];
-const RAISED: [number, number, number] = [245, 245, 247];
-const RED: [number, number, number] = [215, 25, 32];
+type RGB = [number, number, number];
+// Brand palette (from the HR screening app + the Little Nap Recliners logo)
+const INK: RGB = [29, 29, 31];
+const MUTED: RGB = [110, 110, 115];
+const BORDER: RGB = [217, 217, 222];
+const RAISED: RGB = [245, 245, 247];
+const RED: RGB = [215, 25, 32];
+const WHITE: RGB = [255, 255, 255];
 
 const W = 210, H = 297, MX = 16, CW = W - 2 * MX;
-const BOTTOM = 266; // content must stop above the footer
+const BOTTOM = 268; // content must stop above the footer
 
 function b64(u8: Uint8Array): string {
   let s = '';
@@ -42,150 +41,167 @@ export function buildPoPdf(d: PoDoc, a: PdfAssets): Uint8Array {
   doc.addFileToVFS('Inter-SemiBold.ttf', b64(a.semibold));
   doc.addFont('Inter-Regular.ttf', 'Inter', 'normal');
   doc.addFont('Inter-SemiBold.ttf', 'Inter', 'bold');
-  doc.setProperties({ title: `Purchase Order ${d.po.poNo}`, author: d.company.legalName, subject: `Purchase Order to ${d.vendor.name}` });
+  doc.setProperties({ title: `Purchase Order ${d.po.poNo}`, author: d.company.brandName, subject: `Purchase Order to ${d.vendor.name}` });
 
-  const font = (weight: 'normal' | 'bold', size: number, color = INK) => { doc.setFont('Inter', weight); doc.setFontSize(size); doc.setTextColor(...color); };
-  const lines = (txt: string, width: number) => doc.splitTextToSize(txt, width) as string[];
-  const label = (txt: string, x: number, y: number) => { font('bold', 6.8, MUTED); doc.text(txt.toUpperCase(), x, y, { charSpace: 0.35 }); };
-  const rule = (y: number, color = BORDER, w = 0.2, x1 = MX, x2 = W - MX) => { doc.setDrawColor(...color); doc.setLineWidth(w); doc.line(x1, y, x2, y); };
-
+  const font = (weight: 'normal' | 'bold', size: number, color: RGB = INK) => { doc.setFont('Inter', weight); doc.setFontSize(size); doc.setTextColor(...color); };
+  const wrap = (txt: string, width: number) => doc.splitTextToSize(txt, width) as string[];
+  const label = (txt: string, x: number, y: number, color: RGB = MUTED) => { font('bold', 6.8, color); doc.text(txt.toUpperCase(), x, y, { charSpace: 0.35 }); };
+  const rule = (y: number, color: RGB = BORDER, w = 0.2, x1 = MX, x2 = W - MX) => { doc.setDrawColor(...color); doc.setLineWidth(w); doc.line(x1, y, x2, y); };
   const logoH = (w: number) => w * a.logoRatio;
+  const total = d.lines.reduce((s, l) => s + l.qty * l.price, 0);
 
-  // ---------------------------------------------------------------- letterhead (first page)
-  function letterhead() {
-    doc.addImage(a.logo, 'PNG', MX, 11, 40, logoH(40));
-    let y = 13.2;
-    font('bold', 10.5); doc.text(d.company.legalName, W - MX, y, { align: 'right' });
-    font('normal', 8, MUTED);
-    d.company.addressLines.forEach(l => { y += 4.1; doc.text(l, W - MX, y, { align: 'right' }); });
-    const regLine = [d.company.gstin && `GSTIN ${d.company.gstin}`, d.company.cin && `CIN ${d.company.cin}`].filter(Boolean).join('   ·   ');
-    const contactLine = [d.company.phone, d.company.email, d.company.website].filter(Boolean).join('   ·   ');
-    if (regLine) { y += 4.3; font('normal', 7.6, INK); doc.text(regLine, W - MX, y, { align: 'right' }); }
-    if (contactLine) { y += 4; font('normal', 7.6, MUTED); doc.text(contactLine, W - MX, y, { align: 'right' }); }
-    const ry = Math.max(11 + logoH(40), y) + 4;
-    rule(ry, INK, 0.35);
-    rule(ry, RED, 1.1, MX, MX + 30);
-    return ry;
-  }
+  // ---------------------------------------------------------------- header: logo + title (first page)
+  const LOGO_W = 44;
+  doc.addImage(a.logo, 'PNG', MX, 10, LOGO_W, logoH(LOGO_W));
+  font('bold', 22); doc.text('PURCHASE ORDER', W - MX, 20, { align: 'right' });
+  font('normal', 7.4, MUTED); doc.text('PO NUMBER', W - MX, 27.5, { align: 'right', charSpace: 0.35 });
+  font('bold', 16, RED); doc.text(d.po.poNo || '—', W - MX, 34, { align: 'right' });
+  font('normal', 8.6, MUTED); doc.text(`Date  ${dateFmt(d.po.date)}`, W - MX, 39.2, { align: 'right' });
+  const hy = 10 + logoH(LOGO_W) + 5;
+  rule(hy, INK, 0.35); rule(hy, RED, 1.2, MX, MX + 30);
+
   function compactHeader() {
     doc.addImage(a.logo, 'PNG', MX, 9, 20, logoH(20));
-    font('bold', 9); doc.text(`Purchase Order ${d.po.poNo}`, W - MX, 13, { align: 'right' });
-    font('normal', 7.5, MUTED); doc.text(`${d.company.legalName}  ·  to ${d.vendor.name}`, W - MX, 17.5, { align: 'right' });
+    font('bold', 9.5); doc.text(`Purchase Order ${d.po.poNo}`, W - MX, 13, { align: 'right' });
+    font('normal', 7.6, MUTED); doc.text(`to ${d.vendor.name}`, W - MX, 17.6, { align: 'right' });
     rule(22, INK, 0.3); rule(22, RED, 0.9, MX, MX + 16);
   }
 
-  const lhBottom = letterhead();
-
-  // ---------------------------------------------------------------- title
-  let y = lhBottom + 11;
-  font('bold', 19); doc.text('PURCHASE ORDER', MX, y + 1);
-  font('normal', 7.6, MUTED); doc.text('PO NUMBER', W - MX, y - 5, { align: 'right', charSpace: 0.35 });
-  font('bold', 17, RED); doc.text(d.po.poNo || '—', W - MX, y + 2, { align: 'right' });
-  font('normal', 8.5, MUTED); doc.text(`Date: ${dateFmt(d.po.date)}`, W - MX, y + 7.2, { align: 'right' });
-
-  // ---------------------------------------------------------------- vendor + order details boxes
-  y += 13;
+  // ---------------------------------------------------------------- vendor + order details
+  let y = hy + 8;
   const bw = (CW - 6) / 2, pad = 4;
   const vendorLines: { text: string; bold?: boolean; muted?: boolean }[] = [];
-  font('bold', 9.5);
-  lines(d.vendor.name, bw - 2 * pad).forEach(t => vendorLines.push({ text: t, bold: true }));
-  lines(d.vendor.address || '—', bw - 2 * pad).forEach(t => vendorLines.push({ text: t, muted: true }));
+  font('bold', 9.8);
+  wrap(d.vendor.name, bw - 2 * pad).forEach(t => vendorLines.push({ text: t, bold: true }));
+  wrap(d.vendor.address || '—', bw - 2 * pad).forEach(t => vendorLines.push({ text: t, muted: true }));
   vendorLines.push({ text: [d.vendor.gstin && `GSTIN ${d.vendor.gstin}`, d.vendor.pan && `PAN ${d.vendor.pan}`].filter(Boolean).join('   ·   ') || 'GSTIN —' });
-  if (d.vendor.contact || d.vendor.phone || d.vendor.email) lines([d.vendor.contact, d.vendor.phone, d.vendor.email].filter(Boolean).join('  ·  '), bw - 2 * pad).forEach(t => vendorLines.push({ text: t, muted: true }));
-  if (d.vendor.msme) vendorLines.push({ text: `MSME${d.vendor.msmeType ? ' (' + d.vendor.msmeType + ')' : ''}${d.vendor.udyamNo ? '  ·  Udyam ' + d.vendor.udyamNo : ''}`, bold: true });
+  font('normal', 8.4);
+  if (d.vendor.contact || d.vendor.phone || d.vendor.email) wrap([d.vendor.contact, d.vendor.phone, d.vendor.email].filter(Boolean).join('  ·  '), bw - 2 * pad).forEach(t => vendorLines.push({ text: t, muted: true }));
+  if (d.vendor.msme) {
+    vendorLines.push({ text: `MSME vendor${d.vendor.msmeType ? ' · ' + d.vendor.msmeType : ''}`, bold: true });
+    if (d.vendor.udyamNo) wrap(`Udyam No. ${d.vendor.udyamNo}`, bw - 2 * pad).forEach(t => vendorLines.push({ text: t }));
+  }
 
   const details: [string, string][] = [
-    ['Expected delivery', dateFmt(d.po.expectedDate)],
+    ['Delivery by', dateFmt(d.po.expectedDate)],
     ['Payment terms', d.po.paymentTerms],
     ['Advance', d.po.advanceRequired ? `₹${money(d.po.advanceAmount)} before dispatch` : 'Not required'],
     ['Prepared by', [d.po.preparedBy, d.po.department && `(${d.po.department})`].filter(Boolean).join(' ')],
-    ['Deliver to', d.po.deliverTo],
   ];
-  const rows = details.filter(([k, v]) => k !== 'Deliver to' || v).map(([k, v]) => ({ k, v: lines(v || '—', bw - 2 * pad - 30) }));
-  const detailH = rows.reduce((h, r) => h + Math.max(1, r.v.length) * 4.1 + 1.2, 0);
-  const vendorH = vendorLines.length * 4.5;
-  const boxH = Math.max(vendorH, detailH) + 11;
+  font('normal', 8.4);
+  const rows = details.map(([k, v]) => ({ k, v: wrap(v || '—', bw - 2 * pad - 30) }));
+  const detailH = rows.reduce((h, r) => h + Math.max(1, r.v.length) * 4.1 + 1.6, 0);
+  const boxH = Math.max(vendorLines.length * 4.5, detailH) + 11;
 
   doc.setFillColor(...RAISED); doc.setDrawColor(...BORDER); doc.setLineWidth(0.2);
   doc.roundedRect(MX, y, bw, boxH, 1.8, 1.8, 'FD');
-  doc.setFillColor(255, 255, 255);
+  doc.setFillColor(...WHITE);
   doc.roundedRect(MX + bw + 6, y, bw, boxH, 1.8, 1.8, 'FD');
   label('Vendor', MX + pad, y + 5.5);
   let vy = y + 10.5;
-  vendorLines.forEach(l => { font(l.bold ? 'bold' : 'normal', l.bold ? 9.5 : 8.4, l.muted ? MUTED : INK); doc.text(l.text, MX + pad, vy); vy += 4.5; });
+  vendorLines.forEach(l => { font(l.bold ? 'bold' : 'normal', l.bold ? 9.8 : 8.4, l.muted ? MUTED : INK); doc.text(l.text, MX + pad, vy); vy += 4.5; });
   label('Order details', MX + bw + 6 + pad, y + 5.5);
   let dy = y + 10.5;
   rows.forEach(r => {
     font('normal', 8, MUTED); doc.text(r.k, MX + bw + 6 + pad, dy);
-    font('normal', 8.4, INK); r.v.forEach((t, i) => doc.text(t, MX + bw + 6 + pad + 30, dy + i * 4.1));
-    dy += Math.max(1, r.v.length) * 4.1 + 1.2;
+    font('bold', 8.6, INK); r.v.forEach((t, i) => doc.text(t, MX + bw + 6 + pad + 30, dy + i * 4.1));
+    dy += Math.max(1, r.v.length) * 4.1 + 1.6;
   });
-  y += boxH + 7;
+  y += boxH + 8;
 
   // ---------------------------------------------------------------- items
-  const total = d.lines.reduce((s, l) => s + l.qty * l.price, 0);
   autoTable(doc, {
     startY: y,
     margin: { left: MX, right: MX, top: 28, bottom: H - BOTTOM },
     theme: 'plain',
-    head: [['#', 'Description', 'Unit', 'Qty', 'Rate (₹)', 'Amount (₹)']],
+    head: [['#', 'Item description', 'Unit', 'Qty', 'Rate (₹)', 'Amount (₹)']],
     body: d.lines.map((l, i) => [String(i + 1), l.name, l.unit, qtyFmt(l.qty), money(l.price), money(l.qty * l.price)]),
-    styles: { font: 'Inter', fontSize: 8.8, textColor: INK, cellPadding: { top: 2.8, bottom: 2.8, left: 2.2, right: 2.2 }, lineColor: BORDER, lineWidth: { top: 0, right: 0, bottom: 0.2, left: 0 }, valign: 'middle' },
-    headStyles: { fillColor: RAISED, textColor: MUTED, fontStyle: 'bold', fontSize: 7.2, lineColor: INK, lineWidth: { top: 0, right: 0, bottom: 0.45, left: 0 } },
+    foot: [[{ content: 'Order value (before tax)', colSpan: 5, styles: { halign: 'right' } }, `₹ ${money(total)}`]],
+    showFoot: 'lastPage',
+    styles: { font: 'Inter', fontSize: 8.9, textColor: INK, cellPadding: { top: 2.9, bottom: 2.9, left: 2.4, right: 2.4 }, lineColor: BORDER, lineWidth: { top: 0, right: 0, bottom: 0.2, left: 0 }, valign: 'middle' },
+    headStyles: { fillColor: INK, textColor: WHITE, fontStyle: 'bold', fontSize: 7.4, lineWidth: 0, cellPadding: { top: 3.2, bottom: 3.2, left: 2.4, right: 2.4 } },
+    footStyles: { fillColor: RAISED, textColor: INK, fontStyle: 'bold', fontSize: 10, lineColor: INK, lineWidth: { top: 0.4, right: 0, bottom: 0, left: 0 }, cellPadding: { top: 3.4, bottom: 3.4, left: 2.4, right: 2.4 } },
+    alternateRowStyles: { fillColor: [250, 250, 251] },
     columnStyles: {
       0: { cellWidth: 9, textColor: MUTED }, 1: { cellWidth: 'auto', fontStyle: 'bold' }, 2: { cellWidth: 15, textColor: MUTED },
-      3: { cellWidth: 21, halign: 'right' }, 4: { cellWidth: 28, halign: 'right' }, 5: { cellWidth: 32, halign: 'right', fontStyle: 'bold' },
+      3: { cellWidth: 21, halign: 'right' }, 4: { cellWidth: 28, halign: 'right' }, 5: { cellWidth: 33, halign: 'right', fontStyle: 'bold' },
     },
-    didParseCell: (h) => { if (h.section === 'head' && [3, 4, 5].includes(h.column.index)) h.cell.styles.halign = 'right'; },
+    didParseCell: (h) => {
+      if (h.section === 'head' && [3, 4, 5].includes(h.column.index)) h.cell.styles.halign = 'right';
+      if (h.section === 'foot' && h.column.index === 5) h.cell.styles.halign = 'right';
+    },
     didDrawPage: (h) => { if (h.pageNumber > 1) compactHeader(); },
   });
   y = (doc as any).lastAutoTable.finalY;
 
-  // ---------------------------------------------------------------- page-break helper for everything below the table
   const ensure = (h: number) => { if (y + h > BOTTOM) { doc.addPage(); compactHeader(); y = 30; } };
 
-  // ---------------------------------------------------------------- totals + amount in words
-  ensure(36);
+  // ---------------------------------------------------------------- amount in words
+  const words = wrap(rupeesInWords(total), CW - 2 * pad);
+  const bandH = 7 + words.length * 4.4 + 5;
+  ensure(bandH + 4);
   y += 6;
-  const tx = W - MX - 78;
-  font('normal', 8.6, MUTED); doc.text('Order value (before tax)', tx, y); font('bold', 11, INK); doc.text(`₹ ${money(total)}`, W - MX, y, { align: 'right' });
-  y += 5; font('normal', 7.8, MUTED); doc.text('GST / other taxes: extra, as applicable on the invoice', tx, y);
-  y += 4; rule(y, INK, 0.35, tx, W - MX);
-  const words = lines(rupeesInWords(total), CW - 8);
-  y += 6; label('Amount in words (excl. taxes)', MX, y);
-  y += 4.6; font('bold', 8.8); words.forEach(w => { doc.text(w, MX, y); y += 4.3; });
-  y += 2;
+  doc.setFillColor(...RAISED); doc.setDrawColor(...BORDER); doc.setLineWidth(0.2);
+  doc.roundedRect(MX, y, CW, bandH, 1.8, 1.8, 'FD');
+  label('Amount in words', MX + pad, y + 5.2);
+  font('bold', 9.2); words.forEach((w, i) => doc.text(w, MX + pad, y + 10.4 + i * 4.4));
+  font('normal', 7.2, MUTED); doc.text('GST / other taxes extra, as applicable on the invoice', W - MX - pad, y + 5.2, { align: 'right' });
+  y += bandH + 5;
 
-  // ---------------------------------------------------------------- terms
-  const terms = [d.po.terms.trim(), ...d.standardTerms].filter(Boolean);
-  if (terms.length) {
-    ensure(24);
-    label('Terms & conditions', MX, y + 3);
+  // ---------------------------------------------------------------- advance callout
+  if (d.po.advanceRequired && d.po.advanceAmount > 0) {
+    ensure(14);
+    const pct = total > 0 ? Math.round((d.po.advanceAmount / total) * 1000) / 10 : 0;
+    doc.setFillColor(...WHITE); doc.setDrawColor(...BORDER); doc.setLineWidth(0.2);
+    doc.roundedRect(MX, y, CW, 11, 1.8, 1.8, 'FD');
+    doc.setFillColor(...RED); doc.rect(MX, y + 0.6, 1.4, 9.8, 'F');
+    label('Advance payment', MX + pad + 1, y + 4.6);
+    font('bold', 9.4); doc.text(`₹ ${money(d.po.advanceAmount)}`, MX + pad + 1, y + 8.8);
+    font('normal', 8.4, MUTED); doc.text(`${pct}% of the order value · payable before dispatch`, MX + 52, y + 8.6);
+    y += 16;
+  }
+
+  // ---------------------------------------------------------------- special instructions + general terms
+  const special = d.po.terms.trim();
+  if (special) {
+    const body = wrap(special, CW - 2 * pad);
+    ensure(body.length * 4 + 12);
+    const h = body.length * 4 + 10;
+    doc.setFillColor(...RAISED); doc.setDrawColor(...BORDER); doc.setLineWidth(0.2);
+    doc.roundedRect(MX, y, CW, h, 1.8, 1.8, 'FD');
+    label('Special instructions for this order', MX + pad, y + 5);
+    font('normal', 8.6); body.forEach((ln, i) => doc.text(ln, MX + pad, y + 10 + i * 4));
+    y += h + 5;
+  }
+  if (d.standardTerms.length) {
+    ensure(20);
+    label('General terms & conditions', MX, y + 3);
     y += 8;
-    terms.forEach((t, i) => {
-      const body = lines(t, CW - 7);
+    d.standardTerms.forEach((t, i) => {
+      const body = wrap(t, CW - 7);
       ensure(body.length * 3.7 + 2);
-      font('normal', 7.8, i === 0 && d.po.terms.trim() ? INK : MUTED); doc.text(`${i + 1}.`, MX, y);
+      font('normal', 7.8, MUTED); doc.text(`${i + 1}.`, MX, y);
       body.forEach((ln, k) => doc.text(ln, MX + 6, y + k * 3.7));
       y += body.length * 3.7 + 1.6;
     });
   }
 
-  // ---------------------------------------------------------------- approvals + signature (kept together)
+  // ---------------------------------------------------------------- prepared / approved / signature (kept together)
   ensure(40);
-  y += 5;
+  y += 6;
   const colW = (CW - 12) / 3;
   const sy = y;
-  label('Prepared by', MX, sy);
-  font('bold', 9); doc.text(d.po.preparedBy || '—', MX, sy + 5.5);
-  font('normal', 7.8, MUTED); doc.text(dateFmt(d.po.date), MX, sy + 9.5);
-  label('Approved by', MX + colW + 6, sy);
-  if (d.approvals.length === 0) { font('normal', 8, MUTED); doc.text(d.draft ? 'Awaiting approval' : '—', MX + colW + 6, sy + 5.5); }
-  d.approvals.forEach((ap, i) => { font('bold', 8.6); doc.text(ap.by, MX + colW + 6, sy + 5.5 + i * 8.6); font('normal', 7.6, MUTED); doc.text(dateFmt(ap.date), MX + colW + 6, sy + 9.4 + i * 8.6); });
-  const sx = MX + 2 * (colW + 6);
-  label(`For ${d.company.brandName || d.company.legalName}`, sx, sy);
-  rule(sy + 20, INK, 0.3, sx, sx + colW);
-  font('normal', 7.8, MUTED); doc.text(d.company.signatory, sx, sy + 24);
+  const col = (i: number) => MX + i * (colW + 6);
+  [0, 1, 2].forEach(i => rule(sy - 2, i === 2 ? INK : BORDER, i === 2 ? 0.35 : 0.2, col(i), col(i) + colW));
+  label('Prepared by', col(0), sy + 3);
+  font('bold', 9.2); doc.text(d.po.preparedBy || '—', col(0), sy + 8.8);
+  font('normal', 7.8, MUTED); doc.text(dateFmt(d.po.date), col(0), sy + 12.8);
+  label('Approved by', col(1), sy + 3);
+  if (d.approvals.length === 0) { font('normal', 8.2, MUTED); doc.text(d.draft ? 'Awaiting approval' : '—', col(1), sy + 8.8); }
+  d.approvals.forEach((ap, i) => { font('bold', 8.8); doc.text(ap.by, col(1), sy + 8.8 + i * 8.6); font('normal', 7.6, MUTED); doc.text(dateFmt(ap.date), col(1), sy + 12.7 + i * 8.6); });
+  label(`For ${d.company.brandName}`, col(2), sy + 3, INK);
+  rule(sy + 24, BORDER, 0.3, col(2), col(2) + colW);
+  font('normal', 7.8, MUTED); doc.text(d.company.signatory, col(2), sy + 28);
 
   // ---------------------------------------------------------------- draft watermark + footer on every page
   const pages = doc.getNumberOfPages();
@@ -201,9 +217,8 @@ export function buildPoPdf(d: PoDoc, a: PdfAssets): Uint8Array {
       doc.restoreGraphicsState();
     }
     rule(H - 17, BORDER);
-    font('normal', 6.9, MUTED);
-    doc.text([d.company.legalName, d.company.cin && `CIN ${d.company.cin}`, d.company.gstin && `GSTIN ${d.company.gstin}`].filter(Boolean).join('   ·   '), MX, H - 12.5);
-    doc.text('This is a computer-generated purchase order. Please acknowledge receipt and quote the PO number on all invoices and challans.', MX, H - 8.6);
+    font('bold', 7.8, INK); doc.text(d.company.brandName, MX, H - 12.5);
+    font('normal', 6.9, MUTED); doc.text('This is a computer-generated purchase order. Please acknowledge receipt and quote the PO number on all invoices and challans.', MX, H - 8.6);
     font('bold', 7.6, INK); doc.text(`${d.po.poNo}  ·  Page ${p} of ${pages}`, W - MX, H - 12.5, { align: 'right' });
   }
   return new Uint8Array(doc.output('arraybuffer'));
