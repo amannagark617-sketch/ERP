@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import { AppState, PoLine, PurchaseOrder, ReceiptLine, RoleInfo, User, Vendor } from './types';
 import { Flat, diff, emptyFlat, flatten, nest } from './model';
-import { Applied, ApiError, api, getMode } from './api';
+import { Applied, ApiError, api, isConnected } from './api';
 import { applyConfig, cfg } from './config';
 import { advanceAvailable, approvalRoute, computeReceipt, poValue, receiptBalance, receivedQty, vendorOf } from './domain';
 import { UploadFile, fileToUpload, round2, today, uid } from './utils';
@@ -51,7 +51,7 @@ function applyBoot(b: Awaited<ReturnType<typeof api.bootstrap>>) {
 }
 
 export async function init() {
-  if (getMode() === 'unset') return set({ phase: 'setup' });
+  if (!isConnected()) return set({ phase: 'setup' });
   const saved = store.get();
   if (saved) {
     token = saved;
@@ -73,7 +73,7 @@ export async function login(loginId: string, password: string) {
 export async function logout() {
   if (token) await api.logout(token);
   token = ''; store.del(); flat = emptyFlat();
-  set({ phase: getMode() === 'unset' ? 'setup' : 'login', user: null, state: nest(flat) });
+  set({ phase: isConnected() ? 'login' : 'setup', user: null, state: nest(flat) });
 }
 
 export const goSetup = () => set({ phase: 'setup' });

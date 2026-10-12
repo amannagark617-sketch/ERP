@@ -9,6 +9,7 @@ export interface TableDef {
   sheet: string;
   id: string;                    // key of the unique-ID column
   kind: 'data' | 'config';       // data tables get Version / Updated At / Updated By columns
+  book?: 'data' | 'access';      // which Google Spreadsheet file holds the tab (default 'data'); logins & config live in 'access'
   cols: Col[];
   autoId?: string;               // prefix used to fill a blank ID (e.g. rows typed by hand)
   deriveId?: (r: any) => string; // ID computed from other columns
@@ -94,26 +95,26 @@ export const TABLES = {
   },
   // ---------- Access control & configuration (edit directly in the Sheet) ----------
   users: {
-    sheet: 'Users', id: 'loginId', kind: 'config',
+    sheet: 'Users', id: 'loginId', kind: 'config', book: 'access',
     cols: [
       c('loginId', 'Login ID'), c('password', 'Password'), c('name', 'Full Name'), c('role', 'Role'), c('department', 'Department'),
       c('level', 'Level', 'num'), c('reportsTo', 'Reports To (Login ID)'), c('active', 'Active (Yes/No)', 'bool'),
     ],
   },
   roles: {
-    sheet: 'Roles', id: 'role', kind: 'config',
+    sheet: 'Roles', id: 'role', kind: 'config', book: 'access',
     cols: [c('role', 'Role'), c('level', 'Default Level', 'num'), c('department', 'Department'), c('description', 'Description')],
   },
   permissions: {
-    sheet: 'Permissions', id: 'action', kind: 'config',
+    sheet: 'Permissions', id: 'action', kind: 'config', book: 'access',
     cols: [c('action', 'Action'), c('roles', 'Allowed Roles (comma separated, * = everyone)'), c('minLevel', 'Or Level At Least', 'num'), c('description', 'What it allows')],
   },
   approvalRules: {
-    sheet: 'ApprovalRules', id: 'step', kind: 'config',
+    sheet: 'ApprovalRules', id: 'step', kind: 'config', book: 'access',
     cols: [c('step', 'Step', 'num'), c('fromValue', 'Applies When PO Value Above', 'num'), c('approverRole', 'Approver Role'), c('description', 'Note')],
   },
   settings: {
-    sheet: 'Settings', id: 'key', kind: 'config',
+    sheet: 'Settings', id: 'key', kind: 'config', book: 'access',
     cols: [c('key', 'Setting'), c('value', 'Value'), c('description', 'Meaning')],
   },
   audit: {
@@ -125,6 +126,8 @@ export const TABLES = {
 export type TableKey = keyof typeof TABLES;
 export const DATA_TABLES = (Object.keys(TABLES) as TableKey[]).filter(k => TABLES[k].kind === 'data');
 export const def = (k: TableKey): TableDef => TABLES[k] as TableDef;
+export type Book = 'data' | 'access';
+export const bookOf = (d: TableDef): Book => d.book ?? 'data';
 export const allCols = (d: TableDef): Col[] => (d.kind === 'data' ? [...d.cols, ...SYSTEM_COLS] : d.cols);
 
 const truthy = (v: any) => v === true || /^(yes|y|true|1)$/i.test(String(v ?? '').trim());

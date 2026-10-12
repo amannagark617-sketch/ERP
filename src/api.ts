@@ -1,9 +1,6 @@
-import { handle } from './shared/core';
-import { createMemHost } from './shared/memhost';
-import { setup } from './shared/core';
 import { Op } from './model';
 import { User, ApprovalRule, RoleInfo } from './types';
-import { today } from './utils';
+import { SERVER_URL } from './serverUrl';
 
 export class ApiError extends Error {
   constructor(message: string, public code = 'ERROR') { super(message); }
@@ -17,51 +14,29 @@ export interface Boot {
 export interface Applied { applied: { table: string; row: any }[]; deleted: { table: string; id: string }[] }
 
 const URL_KEY = 'littlenap-api-url';
-const MODE_KEY = 'littlenap-mode';
-const DEMO_DB = 'littlenap-demo-db';
-
-export type Mode = 'remote' | 'local' | 'unset';
 const ls = {
   get: (k: string) => { try { return localStorage.getItem(k); } catch { return null; } },
   set: (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* ignore */ } },
   del: (k: string) => { try { localStorage.removeItem(k); } catch { /* ignore */ } },
 };
 
-export function getMode(): Mode {
-  if (ls.get(MODE_KEY) === 'local') return 'local';
-  if (ls.get(URL_KEY) || (import.meta as any).env?.VITE_API_URL) return 'remote';
-  return 'unset';
-}
-export const getApiUrl = () => ls.get(URL_KEY) || (import.meta as any).env?.VITE_API_URL || '';
-export function useRemote(url: string) { ls.set(URL_KEY, url.trim()); ls.del(MODE_KEY); }
-export function useDemo() { ls.set(MODE_KEY, 'local'); }
-export function disconnect() { ls.del(URL_KEY); ls.del(MODE_KEY); }
-export function resetDemo() { ls.del(DEMO_DB); localHost = null; }
-
-let localHost: ReturnType<typeof createMemHost> | null = null;
-function demoHost() {
-  if (!localHost) {
-    localHost = createMemHost({ load: () => ls.get(DEMO_DB), save: s => ls.set(DEMO_DB, s) }, () => new Date().toISOString());
-    if (!localHost.read('Users').length) setup(localHost, true, today());
-  }
-  return localHost;
-}
+/** Where the Google Apps Script web app lives: serverUrl.ts, else VITE_API_URL, else pasted on the first screen. */
+export const getApiUrl = (): string => SERVER_URL || (import.meta as any).env?.VITE_API_URL || ls.get(URL_KEY) || '';
+export const isConnected = () => !!getApiUrl();
+export const saveApiUrl = (url: string) => ls.set(URL_KEY, url.trim());
+export const disconnect = () => ls.del(URL_KEY);
 
 async function call(req: Record<string, unknown>): Promise<any> {
+  const url = getApiUrl();
+  if (!url) throw new ApiError('No server connected', 'SETUP');
   let res: any;
-  if (getMode() === 'local') {
-    res = handle(demoHost(), JSON.parse(JSON.stringify(req)));
-  } else {
-    const url = getApiUrl();
-    if (!url) throw new ApiError('No server connected', 'SETUP');
-    let r: Response;
-    try {
-      r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(req) });
-    } catch {
-      throw new ApiError('Cannot reach the server. Check the internet connection and the Web app URL.', 'NETWORK');
-    }
-    try { res = await r.json(); } catch { throw new ApiError('The server did not return valid data. Is the Web app URL correct and set to "Anyone"?', 'NETWORK'); }
+  let r: Response;
+  try {
+    r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(req) });
+  } catch {
+    throw new ApiError('Cannot reach the server. Check the internet connection and the Web app URL.', 'NETWORK');
   }
+  try { res = await r.json(); } catch { throw new ApiError('The server did not return valid data. Is the Web app URL correct and access set to "Anyone"?', 'NETWORK'); }
   if (!res.ok) throw new ApiError(res.error || 'Request failed', res.code);
   return res;
 }

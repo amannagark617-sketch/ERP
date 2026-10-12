@@ -1,20 +1,21 @@
 /**
  * Server logic. Runs inside Google Apps Script (bundled into apps-script/Code.gs),
- * and unchanged in the browser for the offline demo mode and in the tests.
+ * and unchanged in the tests (with an in-memory Host).
  * The environment is injected through `Host`.
  */
-import { DATA_TABLES, TABLES, TableKey, allCols, def, fromSheet, toSheet } from './schema';
+import { Book, DATA_TABLES, TABLES, TableKey, allCols, bookOf, def, fromSheet, toSheet } from './schema';
 import { sha256 } from './sha256';
-import { configSeed, demoSeed } from './seed';
+import { configSeed } from './seed';
 
 export interface Host {
   now(): string;                                   // ISO timestamp
   uuid(): string;
-  ensureSheet(name: string, headers: string[], textHeaders: string[]): void;
-  read(name: string): Record<string, any>[];       // header → value, plus __row (1-based sheet row index of the data row)
-  append(name: string, row: Record<string, any>): number; // returns new row index
-  update(name: string, rowIdx: number, row: Record<string, any>): void;
-  remove(name: string, rowIdx: number): void;
+  // `book` says which Google Spreadsheet file: 'data' (business data) or 'access' (logins, roles, permissions, settings)
+  ensureSheet(book: Book, name: string, headers: string[], textHeaders: string[]): void;
+  read(book: Book, name: string): Record<string, any>[];       // header → value, plus __row (1-based sheet row index of the data row)
+  append(book: Book, name: string, row: Record<string, any>): number; // returns new row index
+  update(book: Book, name: string, rowIdx: number, row: Record<string, any>): void;
+  remove(book: Book, name: string, rowIdx: number): void;
   withLock<T>(fn: () => T): T;
   cacheGet(key: string): string | null;
   cachePut(key: string, value: string, ttlSeconds: number): void;
@@ -55,7 +56,7 @@ class Db {
   rows(k: TableKey): any[] {
     if (!this.cache[k]) {
       const d = def(k);
-      this.cache[k] = this.host.read(d.sheet).map(raw => ({ ...fromSheet(d, raw), __row: raw.__row }));
+      this.cache[k] = this.host.read(bookOf(d), d.sheet).map(raw => ({ ...fromSheet(d, raw), __row: raw.__row }));
     }
     return this.cache[k]!;
   }
@@ -64,15 +65,15 @@ class Db {
     const d = def(k);
     const rows = this.rows(k);
     const i = rows.findIndex(r => r[d.id] === e[d.id]);
-    if (i >= 0) { this.host.update(d.sheet, rows[i].__row, toSheet(d, e)); rows[i] = { ...e, __row: rows[i].__row }; }
-    else rows.push({ ...e, __row: this.host.append(d.sheet, toSheet(d, e)) });
+    if (i >= 0) { this.host.update(bookOf(d), d.sheet, rows[i].__row, toSheet(d, e)); rows[i] = { ...e, __row: rows[i].__row }; }
+    else rows.push({ ...e, __row: this.host.append(bookOf(d), d.sheet, toSheet(d, e)) });
   }
   del(k: TableKey, id: string) {
     const d = def(k);
     const rows = this.rows(k);
     const i = rows.findIndex(r => r[d.id] === id);
     if (i < 0) return;
-    this.host.remove(d.sheet, rows[i].__row);
+    this.host.remove(bookOf(d), d.sheet, rows[i].__row);
     const gone = rows[i].__row;
     rows.splice(i, 1);
     rows.forEach(r => { if (r.__row > gone) r.__row -= 1; });
@@ -112,6 +113,8 @@ function login(host: Host, db: Db, req: any) {
   const id = lc(req.loginId);
   const pw = String(req.password ?? '');
   if (!id || !pw) throw new ApiError('Enter Login ID and password', 'AUTH');
+  const pending = db.rows('users').find(r => lc(r.loginId) === id);
+  if (pending && pending.active && !pending.password) throw new ApiError('No password has been set for this login yet. Ask the Admin to type one in the Users sheet.', 'AUTH');
   const failKey = 'fail:' + id;
   if (Number(host.cacheGet(failKey) || 0) >= MAX_FAILS) throw new ApiError('Too many wrong attempts. Try again in 15 minutes.', 'AUTH');
   const u = db.rows('users').find(r => lc(r.loginId) === id);
@@ -416,7 +419,7 @@ export function handle(host: Host, req: any): any {
   try {
     if (!req || typeof req !== 'object') throw new ApiError('Bad request');
     const db = new Db(host);
-    if (!host.read(TABLES.users.sheet).length && req.action !== 'ping') throw new ApiError('The Sheet is not set up yet. Run setup() in Apps Script first.', 'SETUP');
+    if (!host.read('access', TABLES.users.sheet).length && req.action !== 'ping') throw new ApiError('The Sheet is not set up yet. Run setup() in Apps Script first.', 'SETUP');
     switch (req.action) {
       case 'ping': return { ok: true, pong: true };
       case 'login': return { ok: true, ...host.withLock(() => login(host, db, req)) };
@@ -445,13 +448,16 @@ export function handle(host: Host, req: any): any {
   }
 }
 
-/** Create the tabs/headers and (on a fresh Sheet) the starting configuration. */
-export function setup(host: Host, withDemoData: boolean, today: string): string {
+/**
+ * Create the tabs/headers and (on a fresh Sheet) the starting configuration. Never overwrites existing rows.
+ * `extra` lets tests pre-fill tables; the shipped app starts with no business data at all.
+ */
+export function setup(host: Host, extra?: Partial<Record<TableKey, any[]>>): string {
   const keys = Object.keys(TABLES) as TableKey[];
   for (const k of keys) {
     const d = def(k);
     const cols = allCols(d);
-    host.ensureSheet(d.sheet, cols.map(c => c.header), cols.filter(c => c.type === 'text' || c.type === 'date').map(c => c.header));
+    host.ensureSheet(bookOf(d), d.sheet, cols.map(c => c.header), cols.filter(c => c.type === 'text' || c.type === 'date').map(c => c.header));
   }
   const db = new Db(host);
   const fill = (rows: Partial<Record<TableKey, any[]>>) => {
@@ -460,7 +466,7 @@ export function setup(host: Host, withDemoData: boolean, today: string): string 
       for (const r of rows[k]!) db.put(k, def(k).kind === 'data' ? { ...r, _v: 1, _at: host.now(), _by: 'setup' } : r);
     }
   };
+  if (extra) fill(extra);
   fill(configSeed());
-  if (withDemoData) fill(demoSeed(today));
-  return 'Setup complete. Default logins: admin / admin123 (change passwords after first login).';
+  return 'Setup complete.';
 }

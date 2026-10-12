@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto';
 
 const dir = mkdtempSync(join(tmpdir(), 'erp-test-'));
 const entry = join(dir, 'entry.ts');
-writeFileSync(entry, `export * from '${process.cwd()}/src/shared/core'; export * from '${process.cwd()}/src/shared/memhost'; export * from '${process.cwd()}/src/shared/sha256'; export * from '${process.cwd()}/src/shared/schema';`);
+writeFileSync(entry, `export * from '${process.cwd()}/src/shared/core'; export * from '${process.cwd()}/src/shared/memhost'; export * from '${process.cwd()}/src/shared/sha256'; export * from '${process.cwd()}/src/shared/schema'; export * from '${process.cwd()}/tests/fixture';`);
 const out = join(dir, 'bundle.mjs');
 await build({ entryPoints: [entry], bundle: true, format: 'esm', outfile: out, platform: 'node', logLevel: 'error' });
 const M = await import(out);
@@ -19,7 +19,7 @@ const test = async (name, fn) => { try { await fn(); passed++; console.log('  �
 for (const s of ['', 'abc', 'ünïcode ₹ 123', 'x'.repeat(200)]) assert.equal(M.sha256(s), createHash('sha256').update(s).digest('hex'));
 
 const host = M.createMemHost();
-M.setup(host, true, '2026-10-12');
+M.setup(host, M.fixture('2026-10-12'));
 const call = (req) => M.handle(host, req);
 const login = (id, pw = id + '123') => call({ action: 'login', loginId: id, password: pw });
 const tokenOf = (id) => { const r = login(id); assert.ok(r.ok, r.error); return r.token; };
@@ -30,7 +30,7 @@ const up = (table, row) => ({ t: 'upsert', table, row });
 
 console.log('auth');
 await test('plain-text password is hashed on first login', () => {
-  const u = host.read('Users').find(r => r['Login ID'] === 'navneet');
+  const u = host.read('access', 'Users').find(r => r['Login ID'] === 'navneet');
   assert.ok(u.Password.startsWith('sha256:'), u.Password);
   assert.ok(login('navneet').ok);
 });
@@ -41,10 +41,10 @@ await test('wrong password rejected, 5 failures lock the account', () => {
   host.cacheRemove('fail:accounts');
 });
 await test('inactive user cannot log in; no/expired token rejected', () => {
-  const rows = host.read('Users'); const r = rows.find(x => x['Login ID'] === 'inventory');
-  host.update('Users', r.__row, { 'Active (Yes/No)': 'No' });
+  const rows = host.read('access', 'Users'); const r = rows.find(x => x['Login ID'] === 'inventory');
+  host.update('access', 'Users', r.__row, { 'Active (Yes/No)': 'No' });
   assert.equal(login('inventory').ok, false);
-  host.update('Users', r.__row, { 'Active (Yes/No)': 'Yes' });
+  host.update('access', 'Users', r.__row, { 'Active (Yes/No)': 'Yes' });
   assert.equal(call({ action: 'bootstrap', token: 'bogus' }).code, 'AUTH');
 });
 await test('bootstrap never leaks users/passwords; permissions follow role', () => {
@@ -144,20 +144,20 @@ await test('HO edits vendor (Udyam etc); others cannot', () => {
 await test('formula injection neutralised', () => {
   const v = boot('ho').data.vendors.find(x => x.id === 'V2');
   commit('ho', 'master.manage', [up('vendors', { ...v, contact: '=HYPERLINK("http://evil")' })]);
-  assert.ok(host.read('Vendors').find(r => r['Vendor ID'] === 'V2')['Contact Person'].startsWith(' ='));
+  assert.ok(host.read('data', 'Vendors').find(r => r['Vendor ID'] === 'V2')['Contact Person'].startsWith(' ='));
 });
 await test('a vendor row typed by hand into the Sheet gets an ID', () => {
-  host.append('Vendors', { 'Vendor Name': 'Hand Typed Co', 'MSME (Yes/No)': 'Yes', 'Udyam Registration No': 'UDYAM-XX-00-0000000', 'Active (Yes/No)': 'Yes' });
+  host.append('data', 'Vendors', { 'Vendor Name': 'Hand Typed Co', 'MSME (Yes/No)': 'Yes', 'Udyam Registration No': 'UDYAM-XX-00-0000000', 'Active (Yes/No)': 'Yes' });
   const vs = boot('ho').data.vendors;
   assert.ok(vs.find(v => v.name === 'Hand Typed Co' && /^V\d+$/.test(v.id)));
 });
 await test('a role/permission/rule edited in the Sheet takes effect immediately', () => {
-  const r = host.read('ApprovalRules').find(x => x['Approver Role'] === 'CA');
-  host.update('ApprovalRules', r.__row, { 'Applies When PO Value Above': 5000000 });
+  const r = host.read('access', 'ApprovalRules').find(x => x['Approver Role'] === 'CA');
+  host.update('access', 'ApprovalRules', r.__row, { 'Applies When PO Value Above': 5000000 });
   assert.equal(boot('navneet').config.approvalRules.find(x => x.approverRole === 'CA').fromValue, 5000000);
-  host.update('ApprovalRules', r.__row, { 'Applies When PO Value Above': 1000000 });
-  const perm = host.read('Permissions').find(x => x.Action === 'query.raise');
-  host.update('Permissions', perm.__row, { 'Allowed Roles (comma separated, * = everyone)': 'Inventory' });
+  host.update('access', 'ApprovalRules', r.__row, { 'Applies When PO Value Above': 1000000 });
+  const perm = host.read('access', 'Permissions').find(x => x.Action === 'query.raise');
+  host.update('access', 'Permissions', perm.__row, { 'Allowed Roles (comma separated, * = everyone)': 'Inventory' });
   assert.ok(!boot('navneet').user.permissions.includes('query.raise'));
 });
 await test('admin manages users; password reset works; non-admin refused', () => {
@@ -179,6 +179,27 @@ await test('files: images/pdf only, round-trip', () => {
   assert.equal(call({ action: 'file', token: T.accounts, fileId: r.fileId }).base64, b64);
   assert.equal(call({ action: 'file', token: 'bogus', fileId: r.fileId }).ok, false);
 });
-await test('audit log records writes', () => assert.ok(host.read('AuditLog').some(a => a.Action === 'po.approve')));
+await test('audit log records writes', () => assert.ok(host.read('data', 'AuditLog').some(a => a.Action === 'po.approve')));
+
+console.log('fresh install (no sample data)');
+await test('a fresh setup has no business data and no usable password', () => {
+  const h2 = M.createMemHost();
+  M.setup(h2);
+  assert.equal(h2.read('data', 'Vendors').length, 0); assert.equal(h2.read('data', 'PurchaseOrders').length, 0);
+  assert.equal(h2.read('access', 'Users').length, 1);
+  assert.equal(h2.read('data', 'Users').length, 0, 'logins are NOT in the data spreadsheet');
+  assert.equal(h2.read('access', 'Vendors').length, 0, 'business data is NOT in the access spreadsheet');
+  const r = M.handle(h2, { action: 'login', loginId: 'admin', password: '' });
+  assert.equal(r.ok, false);
+  assert.match(M.handle(h2, { action: 'login', loginId: 'admin', password: 'anything' }).error, /No password has been set/);
+  // admin types a password into the Users sheet
+  const u = h2.read('access', 'Users')[0];
+  h2.update('access', 'Users', u.__row, { Password: 'My-Secret-1' });
+  const ok = M.handle(h2, { action: 'login', loginId: 'admin', password: 'My-Secret-1' });
+  assert.ok(ok.ok, ok.error);
+  assert.ok(h2.read('access', 'Users')[0].Password.startsWith('sha256:'));
+  const b = M.handle(h2, { action: 'bootstrap', token: ok.token });
+  assert.equal(b.data.vendors.length, 0); assert.ok(b.user.permissions.includes('users.manage'));
+});
 
 console.log(`\n${passed} passed`);

@@ -1,26 +1,41 @@
 // GENERATED FILE - do not edit by hand. Run `npm run build:server` after changing src/shared/*.
 /**
  * Little Nap ERP – Google Apps Script host.
- * `Core` (below this file's contents in Code.gs) holds all the logic; this file only talks to Sheets / Drive.
+ * `Core` (bundled below this file's contents in Code.gs) holds all the logic; this file only talks to Sheets / Drive.
  *
- * ONE-TIME SETUP
- *  1. Create a Google Sheet (any name). Extensions > Apps Script. Paste this whole file as Code.gs.
- *  2. Run  setupDemo()  (sample vendors + POs)  or  setup()  (clean start)  once and approve the permissions.
- *  3. Deploy > New deployment > Web app:  Execute as = Me,  Who has access = Anyone.  Copy the Web app URL.
- *  4. Paste that URL on the app's login screen.
+ * TWO Google Spreadsheet files are used:
+ *   DATA   – the sheet this script is attached to: vendors, POs, receipts, payments, audit log …
+ *   ACCESS – a separate file, created automatically by setup(): Users (Login ID + password), Roles, Permissions,
+ *            ApprovalRules, Settings. Share it with the Admin only.
+ *
+ * See README.md  →  "Activate the app"  for the step-by-step guide.
  *
  * After changing this file later: Deploy > Manage deployments > Edit > New version (the URL stays the same).
  */
 
+// Optional: to use an ACCESS sheet you already made, paste its ID here (the long text in its URL between /d/ and /edit).
+// Leave empty and setup() will create one for you.
+var ACCESS_SPREADSHEET_ID = '';
+
 var ROOT_FOLDER_NAME = 'Little Nap ERP Files';
 
-function _ss() {
+var _books = {};
+function _ss(book) {
+  if (_books[book]) return _books[book];
   var props = PropertiesService.getScriptProperties();
-  var id = props.getProperty('SS_ID');
-  if (id) return SpreadsheetApp.openById(id);
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  if (!ss) throw new Error('Open this script from inside the Google Sheet (Extensions > Apps Script).');
-  props.setProperty('SS_ID', ss.getId());
+  var key = book === 'access' ? 'ACCESS_SS_ID' : 'DATA_SS_ID';
+  var id = book === 'access' ? (ACCESS_SPREADSHEET_ID || props.getProperty(key)) : props.getProperty(key);
+  var ss;
+  if (id) ss = SpreadsheetApp.openById(id);
+  else if (book === 'access') {
+    ss = SpreadsheetApp.create('Little Nap ERP - Access (logins & settings)');
+    props.setProperty(key, ss.getId());
+  } else {
+    ss = SpreadsheetApp.getActiveSpreadsheet();
+    if (!ss) throw new Error('Open this script from inside the Google Sheet (Extensions > Apps Script) and run setup() there.');
+    props.setProperty(key, ss.getId());
+  }
+  _books[book] = ss;
   return ss;
 }
 
@@ -28,8 +43,8 @@ var host = {
   now: function () { return new Date().toISOString(); },
   uuid: function () { return Utilities.getUuid(); },
 
-  ensureSheet: function (name, headers, textHeaders) {
-    var ss = _ss();
+  ensureSheet: function (book, name, headers, textHeaders) {
+    var ss = _ss(book);
     var sh = ss.getSheetByName(name);
     if (!sh) { sh = ss.insertSheet(name); sh.setFrozenRows(1); }
     var width = Math.max(sh.getLastColumn(), 1);
@@ -48,10 +63,10 @@ var host = {
     });
   },
 
-  read: function (name) {
-    var sh = _ss().getSheetByName(name);
+  read: function (book, name) {
+    var sh = _ss(book).getSheetByName(name);
     if (!sh || sh.getLastRow() < 1) return [];
-    var tz = _ss().getSpreadsheetTimeZone();
+    var tz = _ss(book).getSpreadsheetTimeZone();
     var vals = sh.getDataRange().getValues();
     var headers = vals[0].map(String);
     var out = [];
@@ -76,14 +91,14 @@ var host = {
     headers.forEach(function (h, j) { if (h && Object.prototype.hasOwnProperty.call(row, h)) cur[j] = row[h]; });
     range.setValues([cur]);
   },
-  append: function (name, row) {
-    var sh = _ss().getSheetByName(name);
+  append: function (book, name, row) {
+    var sh = _ss(book).getSheetByName(name);
     var idx = Math.max(sh.getLastRow(), 1) + 1;
     host._write(sh, idx, row);
     return idx;
   },
-  update: function (name, idx, row) { host._write(_ss().getSheetByName(name), idx, row); },
-  remove: function (name, idx) { _ss().getSheetByName(name).deleteRow(idx); },
+  update: function (book, name, idx, row) { host._write(_ss(book).getSheetByName(name), idx, row); },
+  remove: function (book, name, idx) { _ss(book).getSheetByName(name).deleteRow(idx); },
 
   withLock: function (fn) {
     var lock = LockService.getScriptLock();
@@ -121,8 +136,23 @@ function doPost(e) {
 }
 function doGet() { return _json({ ok: true, app: 'Little Nap ERP API', hint: 'Use POST. Paste this URL into the app.' }); }
 
-function setup() { var msg = Core.setup(host, false, Utilities.formatDate(new Date(), 'Asia/Kolkata', 'yyyy-MM-dd')); Logger.log(msg); return msg; }
-function setupDemo() { var msg = Core.setup(host, true, Utilities.formatDate(new Date(), 'Asia/Kolkata', 'yyyy-MM-dd')); Logger.log(msg); return msg; }
+/** Run this ONCE from the editor. Safe to run again later (adds missing tabs/columns, never overwrites data). */
+function setup() {
+  var msg = Core.setup(host);
+  var access = _ss('access');
+  var data = _ss('data');
+  // Tidy: remove the empty default "Sheet1" tabs
+  [data, access].forEach(function (ss) {
+    var s1 = ss.getSheetByName('Sheet1');
+    if (s1 && ss.getSheets().length > 1 && s1.getLastRow() === 0) ss.deleteSheet(s1);
+  });
+  var out = msg + '\n\nACCESS sheet (logins - share only with the Admin):\n' + access.getUrl() +
+    '\n\nDATA sheet:\n' + data.getUrl() +
+    '\n\nNEXT: open the ACCESS sheet > Users tab > type a password for the "admin" row. Then Deploy > New deployment > Web app.';
+  Logger.log(out);
+  try { SpreadsheetApp.getUi().alert(out); } catch (e) { /* not run from a Sheet window */ }
+  return out;
+}
 
 // ===================== bundled server logic (src/shared) =====================
 "use strict";
@@ -306,6 +336,7 @@ var Core = (() => {
       sheet: "Users",
       id: "loginId",
       kind: "config",
+      book: "access",
       cols: [
         c("loginId", "Login ID"),
         c("password", "Password"),
@@ -321,24 +352,28 @@ var Core = (() => {
       sheet: "Roles",
       id: "role",
       kind: "config",
+      book: "access",
       cols: [c("role", "Role"), c("level", "Default Level", "num"), c("department", "Department"), c("description", "Description")]
     },
     permissions: {
       sheet: "Permissions",
       id: "action",
       kind: "config",
+      book: "access",
       cols: [c("action", "Action"), c("roles", "Allowed Roles (comma separated, * = everyone)"), c("minLevel", "Or Level At Least", "num"), c("description", "What it allows")]
     },
     approvalRules: {
       sheet: "ApprovalRules",
       id: "step",
       kind: "config",
+      book: "access",
       cols: [c("step", "Step", "num"), c("fromValue", "Applies When PO Value Above", "num"), c("approverRole", "Approver Role"), c("description", "Note")]
     },
     settings: {
       sheet: "Settings",
       id: "key",
       kind: "config",
+      book: "access",
       cols: [c("key", "Setting"), c("value", "Value"), c("description", "Meaning")]
     },
     audit: {
@@ -350,6 +385,10 @@ var Core = (() => {
   };
   var DATA_TABLES = Object.keys(TABLES).filter((k) => TABLES[k].kind === "data");
   var def = (k) => TABLES[k];
+  var bookOf = (d) => {
+    var _a;
+    return (_a = d.book) != null ? _a : "data";
+  };
   var allCols = (d) => d.kind === "data" ? [...d.cols, ...SYSTEM_COLS] : d.cols;
   var truthy = (v) => v === true || /^(yes|y|true|1)$/i.test(String(v != null ? v : "").trim());
   function fromSheet(d, raw) {
@@ -521,15 +560,8 @@ var Core = (() => {
         { role: "Accounts", level: 2, department: "Accounts", description: "Advances, invoices, payments" },
         { role: "Inventory", level: 1, department: "Factory", description: "Goods receipt at the factory" }
       ],
-      users: [
-        { loginId: "admin", password: "admin123", name: "Administrator", role: "Admin", department: "Management", level: 5, reportsTo: "", active: true },
-        { loginId: "mohit", password: "mohit123", name: "Mohit (CA)", role: "CA", department: "Finance", level: 4, reportsTo: "admin", active: true },
-        { loginId: "ho", password: "ho123", name: "Head Office", role: "HO", department: "Head Office", level: 4, reportsTo: "admin", active: true },
-        { loginId: "factoryhead", password: "factoryhead123", name: "Factory Head", role: "Factory Head", department: "Factory", level: 3, reportsTo: "mohit", active: true },
-        { loginId: "navneet", password: "navneet123", name: "Navneet", role: "Purchase", department: "Purchase", level: 2, reportsTo: "factoryhead", active: true },
-        { loginId: "accounts", password: "accounts123", name: "Accounts", role: "Accounts", department: "Accounts", level: 2, reportsTo: "mohit", active: true },
-        { loginId: "inventory", password: "inventory123", name: "Inventory (Factory)", role: "Inventory", department: "Factory", level: 1, reportsTo: "factoryhead", active: true }
-      ],
+      // One starter login with NO password: the admin types one into the Users sheet before first use.
+      users: [{ loginId: "admin", password: "", name: "Administrator", role: "Admin", department: "Management", level: 5, reportsTo: "", active: true }],
       permissions: PERMISSION_ROWS.map(([action, roles, description]) => ({ action, roles, minLevel: 5, description })),
       approvalRules: [
         { step: 1, fromValue: 0, approverRole: "Factory Head", description: "Every PO" },
@@ -543,60 +575,6 @@ var Core = (() => {
         { key: "DriveFolderId", value: "", description: "Drive folder for uploads (filled in automatically)" }
       ],
       counters: [{ id: "po", value: 0 }, { id: "grn", value: 0 }]
-    };
-  }
-  var day = (base, n) => {
-    const d = /* @__PURE__ */ new Date(base + "T00:00:00Z");
-    d.setUTCDate(d.getUTCDate() + n);
-    return d.toISOString().slice(0, 10);
-  };
-  function demoSeed(today) {
-    const t = today;
-    const h = (id, poId, d, by, text) => ({ id, poId, date: d, by, text });
-    return {
-      items: [
-        { id: "I1", name: "Recliner mechanism (manual)", unit: "pcs" },
-        { id: "I2", name: "Recliner mechanism (motorised)", unit: "pcs" },
-        { id: "I3", name: "Foam sheet 40D", unit: "sheet" },
-        { id: "I4", name: "Leatherette fabric", unit: "m" },
-        { id: "I5", name: "Wooden frame set", unit: "set" },
-        { id: "I6", name: "Packing carton", unit: "pcs" }
-      ],
-      vendors: [
-        { id: "V1", name: "Sharma Mechanisms Pvt Ltd", contact: "Rakesh Sharma", email: "sales@sharmamech.example", whatsapp: "919800000001", msme: true, msmeType: "Small", udyamNo: "UDYAM-DL-01-0000001", gstin: "07AAAAA0000A1Z5", pan: "AAAAA0000A", address: "Plot 12, Industrial Area", city: "Delhi", state: "Delhi", paymentTermsDays: 30, bankName: "HDFC Bank", accountNo: "50100000000001", ifsc: "HDFC0000001", active: true },
-        { id: "V2", name: "Foam & Fabric Traders", contact: "Anita Verma", email: "orders@foamfabric.example", whatsapp: "919800000002", msme: false, msmeType: "", udyamNo: "", gstin: "06BBBBB1111B1Z6", pan: "BBBBB1111B", address: "Sector 5", city: "Gurugram", state: "Haryana", paymentTermsDays: 45, bankName: "ICICI Bank", accountNo: "000405000002", ifsc: "ICIC0000004", active: true },
-        { id: "V3", name: "Kailash Timber Works", contact: "Kailash Rao", email: "kailash@timber.example", whatsapp: "919800000003", msme: true, msmeType: "Micro", udyamNo: "UDYAM-UP-02-0000002", gstin: "09CCCCC2222C1Z7", pan: "CCCCC2222C", address: "Saw Mill Road", city: "Saharanpur", state: "Uttar Pradesh", paymentTermsDays: 15, bankName: "SBI", accountNo: "30000000003", ifsc: "SBIN0000003", active: true }
-      ],
-      vendorItems: [
-        { vendorId: "V1", itemId: "I1", price: 2400 },
-        { vendorId: "V1", itemId: "I2", price: 6800 },
-        { vendorId: "V2", itemId: "I3", price: 1850 },
-        { vendorId: "V2", itemId: "I4", price: 420 },
-        { vendorId: "V3", itemId: "I5", price: 3200 },
-        { vendorId: "V3", itemId: "I6", price: 95 }
-      ].map((r) => ({ id: `${r.vendorId}:${r.itemId}`, ...r })),
-      pos: [
-        { id: "po1", poNo: "PO-0001", date: day(t, -20), vendorId: "V1", terms: "30 days credit. Delivery at factory gate.", advanceRequired: true, advanceAmount: 1e5, expectedDate: day(t, -5), status: "Sent to Vendor", advanceStatus: "Advance Paid", route: "Factory Head", step: 1, sentVia: "Email", sentTo: "sales@sharmamech.example", createdBy: "Navneet", department: "Purchase" },
-        { id: "po2", poNo: "PO-0002", date: day(t, -1), vendorId: "V2", terms: "Delivery within 10 days.", advanceRequired: false, advanceAmount: 0, expectedDate: day(t, 9), status: "Pending Factory Head", advanceStatus: "Not Required", route: "Factory Head", step: 0, sentVia: "", sentTo: "", createdBy: "Navneet", department: "Purchase" },
-        { id: "po3", poNo: "PO-0003", date: t, vendorId: "V3", terms: "", advanceRequired: false, advanceAmount: 0, expectedDate: day(t, 14), status: "Draft", advanceStatus: "Not Required", route: "", step: 0, sentVia: "", sentTo: "", createdBy: "Navneet", department: "Purchase" }
-      ],
-      poLines: [
-        { poId: "po1", itemId: "I1", qty: 200, price: 2400 },
-        { poId: "po2", itemId: "I3", qty: 300, price: 1850 },
-        { poId: "po2", itemId: "I4", qty: 800, price: 420 },
-        { poId: "po3", itemId: "I5", qty: 100, price: 3200 }
-      ].map((r) => ({ id: `${r.poId}:${r.itemId}`, ...r })),
-      poHistory: [
-        h("h1", "po1", day(t, -20), "Navneet", "PO created and submitted"),
-        h("h2", "po1", day(t, -19), "Factory Head", "Approved"),
-        h("h3", "po1", day(t, -18), "Accounts", "Advance Paid: 100000"),
-        h("h4", "po1", day(t, -18), "Navneet", "Sent to vendor via Email"),
-        h("h5", "po2", day(t, -1), "Navneet", "PO created and submitted"),
-        h("h6", "po3", t, "Navneet", "Draft created")
-      ],
-      payments: [{ id: "pay1", kind: "advance", poId: "po1", receiptId: "", openingId: "", amount: 1e5, date: day(t, -18), screenshot: "", paidBy: "Accounts" }],
-      openings: [{ id: "ob1", vendorId: "V3", ref: "Old bill KT-2291 (opening balance)", amount: 85e3, dueDate: day(t, -12) }],
-      counters: [{ id: "po", value: 3 }, { id: "grn", value: 0 }]
     };
   }
 
@@ -633,7 +611,7 @@ var Core = (() => {
     rows(k) {
       if (!this.cache[k]) {
         const d = def(k);
-        this.cache[k] = this.host.read(d.sheet).map((raw) => ({ ...fromSheet(d, raw), __row: raw.__row }));
+        this.cache[k] = this.host.read(bookOf(d), d.sheet).map((raw) => ({ ...fromSheet(d, raw), __row: raw.__row }));
       }
       return this.cache[k];
     }
@@ -645,16 +623,16 @@ var Core = (() => {
       const rows = this.rows(k);
       const i = rows.findIndex((r) => r[d.id] === e[d.id]);
       if (i >= 0) {
-        this.host.update(d.sheet, rows[i].__row, toSheet(d, e));
+        this.host.update(bookOf(d), d.sheet, rows[i].__row, toSheet(d, e));
         rows[i] = { ...e, __row: rows[i].__row };
-      } else rows.push({ ...e, __row: this.host.append(d.sheet, toSheet(d, e)) });
+      } else rows.push({ ...e, __row: this.host.append(bookOf(d), d.sheet, toSheet(d, e)) });
     }
     del(k, id) {
       const d = def(k);
       const rows = this.rows(k);
       const i = rows.findIndex((r) => r[d.id] === id);
       if (i < 0) return;
-      this.host.remove(d.sheet, rows[i].__row);
+      this.host.remove(bookOf(d), d.sheet, rows[i].__row);
       const gone = rows[i].__row;
       rows.splice(i, 1);
       rows.forEach((r) => {
@@ -693,6 +671,8 @@ var Core = (() => {
     const id = lc(req.loginId);
     const pw = String((_a = req.password) != null ? _a : "");
     if (!id || !pw) throw new ApiError("Enter Login ID and password", "AUTH");
+    const pending = db.rows("users").find((r) => lc(r.loginId) === id);
+    if (pending && pending.active && !pending.password) throw new ApiError("No password has been set for this login yet. Ask the Admin to type one in the Users sheet.", "AUTH");
     const failKey = "fail:" + id;
     if (Number(host.cacheGet(failKey) || 0) >= MAX_FAILS) throw new ApiError("Too many wrong attempts. Try again in 15 minutes.", "AUTH");
     const u = db.rows("users").find((r) => lc(r.loginId) === id);
@@ -1010,7 +990,7 @@ var Core = (() => {
     try {
       if (!req || typeof req !== "object") throw new ApiError("Bad request");
       const db = new Db(host);
-      if (!host.read(TABLES.users.sheet).length && req.action !== "ping") throw new ApiError("The Sheet is not set up yet. Run setup() in Apps Script first.", "SETUP");
+      if (!host.read("access", TABLES.users.sheet).length && req.action !== "ping") throw new ApiError("The Sheet is not set up yet. Run setup() in Apps Script first.", "SETUP");
       switch (req.action) {
         case "ping":
           return { ok: true, pong: true };
@@ -1068,12 +1048,12 @@ var Core = (() => {
       return { ok: false, error: "Server error: " + ((e == null ? void 0 : e.message) || e), code: "SERVER" };
     }
   }
-  function setup(host, withDemoData, today) {
+  function setup(host, extra) {
     const keys = Object.keys(TABLES);
     for (const k of keys) {
       const d = def(k);
       const cols = allCols(d);
-      host.ensureSheet(d.sheet, cols.map((c2) => c2.header), cols.filter((c2) => c2.type === "text" || c2.type === "date").map((c2) => c2.header));
+      host.ensureSheet(bookOf(d), d.sheet, cols.map((c2) => c2.header), cols.filter((c2) => c2.type === "text" || c2.type === "date").map((c2) => c2.header));
     }
     const db = new Db(host);
     const fill = (rows) => {
@@ -1082,9 +1062,9 @@ var Core = (() => {
         for (const r of rows[k]) db.put(k, def(k).kind === "data" ? { ...r, _v: 1, _at: host.now(), _by: "setup" } : r);
       }
     };
+    if (extra) fill(extra);
     fill(configSeed());
-    if (withDemoData) fill(demoSeed(today));
-    return "Setup complete. Default logins: admin / admin123 (change passwords after first login).";
+    return "Setup complete.";
   }
   return __toCommonJS(core_exports);
 })();
