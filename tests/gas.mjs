@@ -4,7 +4,9 @@ import vm from 'node:vm';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 
+function makeEnv() {
 const grids = new Map([['Sheet1', { rows: [], color: '' }]]);
+let uiAnswer = 'YES';
 const mkSheet = (name) => {
   const g = grids.get(name);
   if (g.obj) return g.obj; // stable identity, like the real API
@@ -29,7 +31,7 @@ const ss = {
 const props = {}, cache = new Map(), triggers = [], copies = [];
 let updated = 1;
 const ctx = {
-  SpreadsheetApp: { getActiveSpreadsheet: () => ss, openById: () => ss, getUi: () => { throw new Error('no ui'); } },
+  SpreadsheetApp: { getActiveSpreadsheet: () => ss, openById: () => ss, getUi: () => ({ ButtonSet: { YES_NO: 'YES_NO' }, Button: { YES: 'YES' }, alert: (...a) => (a.length === 3 ? uiAnswer : undefined) }) },
   PropertiesService: { getScriptProperties: () => ({ getProperty: k => props[k] ?? null, setProperty: (k, v) => { props[k] = v; } }) },
   CacheService: { getScriptCache: () => ({ get: k => cache.get(k) ?? null, put: (k, v) => cache.set(k, v), remove: k => cache.delete(k) }) },
   LockService: { getScriptLock: () => ({ waitLock: () => {}, releaseLock: () => {} }) },
@@ -47,6 +49,11 @@ const ctx = {
 };
 vm.createContext(ctx);
 vm.runInContext(readFileSync('apps-script/Code.gs', 'utf8'), ctx);
+return { ctx, grids, props, triggers, copies, setAnswer: (a) => { uiAnswer = a; } };
+}
+
+const env = makeEnv();
+const { ctx, grids, props, triggers, copies } = env;
 const post = (o) => JSON.parse(vm.runInContext('doPost', ctx)({ postData: { contents: JSON.stringify(o) } }).getContent());
 const up = (table, row) => ({ t: 'upsert', table, row });
 
@@ -108,3 +115,31 @@ assert.notEqual(post({ action: 'stamp', token: buyer }).stamp, s1, 'stamp change
 vm.runInContext('installBackup()', ctx);
 assert.equal(triggers.length, 1); assert.equal(copies.length, 1);
 console.log('Code.gs smoke test passed (one spreadsheet, 12 tabs, setup, password in sheet, users, multi-vendor prices, PO, stock, stamp, backup)');
+
+// ---- optional sample data through the real Code.gs
+{
+  const e2 = makeEnv();
+  const post2 = (o) => JSON.parse(vm.runInContext('doPost', e2.ctx)({ postData: { contents: JSON.stringify(o) } }).getContent());
+  vm.runInContext('setup()', e2.ctx);
+  const msg = vm.runInContext('loadSampleData()', e2.ctx);
+  assert.match(msg, /Sample data loaded/);
+  assert.ok(e2.grids.get('Vendors').rows.length === 8 && e2.grids.get('PurchaseOrders').rows.length === 11, 'sample vendors and POs are in the sheet');
+  assert.ok(e2.grids.get('Stock').rows.length > 20 && e2.grids.get('Log').rows.length > 30);
+  assert.match(vm.runInContext('loadSampleData()', e2.ctx), /Not loaded/);
+  const login = post2({ action: 'login', loginId: 'demo.purchase', password: 'Demo@1234' });
+  assert.ok(login.ok, login.error);
+  const bt = post2({ action: 'bootstrap', token: login.token });
+  assert.equal(bt.data.pos.length, 10);
+  // the readable text columns in the sheet
+  const vrow = e2.grids.get('Vendors').rows[1];
+  assert.ok(vrow.includes('Sharma Mechanisms Pvt Ltd') && vrow.some(x => String(x).startsWith('UDYAM-')));
+  // clearing needs a YES
+  e2.setAnswer('NO');
+  assert.match(vm.runInContext('clearAllDataBeforeGoingLive()', e2.ctx), /Cancelled/);
+  assert.equal(e2.grids.get('PurchaseOrders').rows.length, 11);
+  e2.setAnswer('YES');
+  assert.match(vm.runInContext('clearAllDataBeforeGoingLive()', e2.ctx), /rows deleted/);
+  for (const tab of ['Vendors', 'Items', 'Prices', 'PurchaseOrders', 'POLines', 'Receipts', 'Payments', 'Stock', 'Log']) assert.equal(e2.grids.get(tab).rows.length, 1, tab + ' has only its header row again');
+  assert.equal(e2.grids.get('Users').rows.length, 2, 'admin kept, demo.* logins removed');
+  console.log('Code.gs sample data + cleanup passed');
+}

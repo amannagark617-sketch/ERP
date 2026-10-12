@@ -173,6 +173,39 @@ function installBackup() {
   Logger.log('Backup installed: a copy is made on the 1st of every month into the Drive folder "' + BACKUP_FOLDER + '" (last ' + BACKUP_KEEP + ' kept). First copy made now.');
 }
 
+// ---------------------------------------------------------------- sample data (optional)
+
+/**
+ * OPTIONAL. Fills the EMPTY business tabs with realistic sample data so you can see how everything looks and try each role:
+ * 6 vendors, 12 items (several sold by 3 vendors at different prices), 10 POs at every stage, receipts, payments,
+ * old pending balances, stock in/out, 2 low-stock items. Also adds 6 logins: demo.purchase, demo.factory, demo.ca,
+ * demo.ho, demo.accounts, demo.store (password Demo@1234). Does nothing if the sheet already has data.
+ */
+function loadSampleData() {
+  var msg = Core.loadSample(host, Utilities.formatDate(new Date(), 'Asia/Kolkata', 'yyyy-MM-dd'));
+  Logger.log(msg);
+  try { SpreadsheetApp.getUi().alert(msg); } catch (e) { /* not run from a Sheet window */ }
+  return msg;
+}
+
+/**
+ * Run this BEFORE GOING LIVE if you loaded the sample data. Deletes every vendor, item, price, PO, receipt, payment, stock
+ * movement and log row, and the demo.* logins. Keeps Users (your admin), Roles and Settings. Asks for confirmation first.
+ */
+function clearAllDataBeforeGoingLive() {
+  var ui;
+  try { ui = SpreadsheetApp.getUi(); } catch (e) { throw new Error('Open the spreadsheet in another browser tab, then run this again so a confirmation box can be shown.'); }
+  var answer = ui.alert('Delete ALL data?',
+    'This permanently deletes every vendor, item, price, PO, receipt, payment, stock movement and log entry, and the demo.* logins.\n\n' +
+    'Users (your admin), Roles and Settings are kept.\n\nOnly do this before real use. Continue?', ui.ButtonSet.YES_NO);
+  if (answer !== ui.Button.YES) { Logger.log('Cancelled - nothing deleted.'); return 'Cancelled'; }
+  var n = Core.clearAllData(host);
+  var msg = 'Done: ' + n + ' rows deleted. The system is empty and ready for real data.';
+  Logger.log(msg);
+  ui.alert(msg);
+  return msg;
+}
+
 // ===================== bundled server logic (src/shared) =====================
 "use strict";
 var Core = (() => {
@@ -200,7 +233,9 @@ var Core = (() => {
     ApiError: () => ApiError,
     DATA_TABLES: () => DATA_TABLES,
     approversOf: () => approversOf,
+    clearAllData: () => clearAllData,
     handle: () => handle,
+    loadSample: () => loadSample,
     routeFor: () => routeFor,
     setup: () => setup
   });
@@ -621,6 +656,416 @@ var Core = (() => {
     return out;
   }
 
+  // src/shared/sample.ts
+  var SAMPLE_PASSWORD = "Demo@1234";
+  var SAMPLE_USER_PREFIX = "demo.";
+  var addDays = (base, n) => {
+    const d = /* @__PURE__ */ new Date(base + "T00:00:00Z");
+    d.setUTCDate(d.getUTCDate() + n);
+    return d.toISOString().slice(0, 10);
+  };
+  var r2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
+  function sampleUsers() {
+    const u = (id, name, role, department, level) => ({ loginId: SAMPLE_USER_PREFIX + id, password: SAMPLE_PASSWORD, name, role, department, level, reportsTo: "admin", active: true });
+    return [
+      u("purchase", "Demo Purchase", "Purchase", "Purchase", 2),
+      u("factory", "Demo Factory Head", "Factory Head", "Factory", 3),
+      u("ca", "Demo CA", "CA", "Finance", 4),
+      u("ho", "Demo HO", "HO", "Head Office", 4),
+      u("accounts", "Demo Accounts", "Accounts", "Accounts", 2),
+      u("store", "Demo Store", "Inventory", "Factory", 1)
+    ];
+  }
+  function sampleData(t) {
+    const D = (n) => addDays(t, n);
+    const iso = (n) => D(n) + "T10:00:00.000Z";
+    const itemSpec = [
+      ["I1", "Recliner mechanism (manual)", "pcs", "Mechanism", 50, true],
+      ["I2", "Recliner mechanism (motorised)", "pcs", "Mechanism", 20, true],
+      ["I3", "Foam sheet 40D", "sheet", "Foam", 100, true],
+      ["I4", "Leatherette fabric", "m", "Fabric", 300, true],
+      ["I5", "Wooden frame set", "set", "Wood", 40, true],
+      ["I6", "Packing carton", "pcs", "Packing", 100, true],
+      ["I7", "Steel spring set", "set", "Hardware", 0, true],
+      ["I8", "Headrest cushion", "pcs", "Foam", 0, true],
+      ["I9", "Velvet fabric", "m", "Fabric", 0, true],
+      ["I10", "Staples box", "pcs", "Hardware", 0, true],
+      ["I11", "Adhesive 20L", "can", "Consumable", 0, true],
+      ["I12", "Castor wheel set (old model)", "set", "Hardware", 0, false]
+    ];
+    const iName = Object.fromEntries(itemSpec.map((i) => [i[0], i[1]]));
+    const vendorSpec = [
+      ["V1", "Sharma Mechanisms Pvt Ltd", "Rakesh Sharma", "Delhi", "Delhi", true, "Small", 30, "HDFC Bank", "50100011112222", true],
+      ["V2", "Foam & Fabric Traders", "Anita Verma", "Gurugram", "Haryana", false, "", 45, "ICICI Bank", "000405001234", true],
+      ["V3", "Kailash Timber Works", "Kailash Rao", "Saharanpur", "Uttar Pradesh", true, "Micro", 15, "SBI", "30000111222", true],
+      ["V4", "Bharat Foam Industries", "Mohan Lal", "Panipat", "Haryana", false, "", 30, "Axis Bank", "917020012345", true],
+      ["V5", "Royal Leather House", "Sana Khan", "Agra", "Uttar Pradesh", true, "Medium", 30, "PNB", "1234002100005678", true],
+      ["V6", "Delhi Hardware Mart", "Vikas Gupta", "Delhi", "Delhi", false, "", 30, "Kotak Bank", "2345678901", true],
+      ["V7", "Old Supplier (not used now)", "N/A", "Jaipur", "Rajasthan", false, "", 30, "", "", false]
+    ];
+    const vName = Object.fromEntries(vendorSpec.map((v) => [v[0], v[1]]));
+    const vendorOf = Object.fromEntries(vendorSpec.map((v) => [v[0], { msme: v[5], terms: v[7] }]));
+    const priceSpec = [
+      ["V1", "I1", 2400],
+      ["V1", "I2", 6800],
+      ["V2", "I3", 1850],
+      ["V4", "I3", 1790],
+      ["V6", "I3", 1880],
+      ["V2", "I4", 420],
+      ["V5", "I4", 395],
+      ["V3", "I5", 3200],
+      ["V3", "I6", 95],
+      ["V6", "I6", 102],
+      ["V6", "I7", 650],
+      ["V4", "I8", 310],
+      ["V2", "I8", 330],
+      ["V5", "I9", 520],
+      ["V2", "I9", 540],
+      ["V6", "I10", 180],
+      ["V4", "I11", 2100],
+      ["V6", "I11", 2250]
+    ];
+    const price = (v, i) => priceSpec.find((p) => p[0] === v && p[1] === i)[2];
+    const P = "Demo Purchase", F = "Demo Factory Head", C = "Demo CA", A = "Demo Accounts", S = "Demo Store", H = "Demo HO";
+    const pos = [
+      {
+        n: 1,
+        vendor: "V6",
+        date: -60,
+        lines: [["I6", 400]],
+        status: "Sent to Vendor",
+        route: ["Factory Head"],
+        step: 1,
+        advance: 0,
+        advStatus: "Not Required",
+        expected: -45,
+        sent: -58,
+        terms: "Delivery at factory gate.",
+        events: [[-60, P, "Draft created and submitted for approval"], [-59, F, "Approved"], [-58, P, "Sent to vendor via Email"], [-55, S, "Goods received, invoice DH-221"], [-53, A, "Invoice accepted"], [-40, A, "Paid 48144 against invoice"]]
+      },
+      {
+        n: 2,
+        vendor: "V1",
+        date: -48,
+        lines: [["I1", 200]],
+        status: "Sent to Vendor",
+        route: ["Factory Head"],
+        step: 1,
+        advance: 1e5,
+        advStatus: "Advance Paid",
+        expected: -30,
+        sent: -45,
+        terms: "30 days credit. 50% advance.",
+        events: [[-48, P, "Draft created and submitted for approval"], [-47, F, "Approved"], [-46, A, "Advance Paid: 100000"], [-45, P, "Sent to vendor via Email"], [-35, S, "Goods received, invoice SM/114 (120 of 200 pcs)"], [-33, A, "Invoice accepted"], [-20, A, "Part payment 150000 against invoice SM/114 (balance 89840 is overdue)"]]
+      },
+      {
+        n: 3,
+        vendor: "V2",
+        date: -28,
+        lines: [["I3", 300], ["I4", 800]],
+        status: "Sent to Vendor",
+        route: ["Factory Head"],
+        step: 1,
+        advance: 0,
+        advStatus: "Not Required",
+        expected: -12,
+        sent: -26,
+        terms: "Delivery within 15 days.",
+        events: [[-28, P, "Draft created and submitted for approval"], [-27, F, "Approved"], [-26, P, "Sent to vendor via WhatsApp"], [-20, S, "Goods received, invoice FF-778"], [-18, A, "Invoice accepted"], [-8, A, "Paid 500000 against invoice"]]
+      },
+      {
+        n: 4,
+        vendor: "V3",
+        date: -14,
+        lines: [["I5", 100], ["I6", 500]],
+        status: "Sent to Vendor",
+        route: ["Factory Head"],
+        step: 1,
+        advance: 0,
+        advStatus: "Not Required",
+        expected: 3,
+        sent: -12,
+        terms: "Part delivery allowed.",
+        events: [[-14, P, "Draft created and submitted for approval"], [-13, F, "Approved"], [-12, P, "Sent to vendor via Email"], [-2, S, "Goods received, invoice KT-5502 (60 of 100 sets)"]]
+      },
+      {
+        n: 5,
+        vendor: "V3",
+        date: -7,
+        lines: [["I6", 600]],
+        status: "Sent to Vendor",
+        route: ["Factory Head"],
+        step: 1,
+        advance: 0,
+        advStatus: "Not Required",
+        expected: 5,
+        sent: -5,
+        terms: "",
+        events: [[-7, P, "Draft created and submitted for approval"], [-6, F, "Approved"], [-5, P, "Sent to vendor via Email"], [-1, S, "Price query raised to HO: Vendor invoice shows Rs 99 per carton, PO says Rs 95"]]
+      },
+      {
+        n: 6,
+        vendor: "V2",
+        date: -6,
+        lines: [["I8", 200]],
+        status: "Rejected",
+        route: ["Factory Head"],
+        step: 0,
+        advance: 0,
+        advStatus: "Not Required",
+        expected: 10,
+        terms: "",
+        events: [[-6, P, "Draft created and submitted for approval"], [-5, F, "Not approved \u2013 Bharat Foam is cheaper for headrests, please re-raise"]]
+      },
+      {
+        n: 7,
+        vendor: "V5",
+        date: -4,
+        lines: [["I4", 1500], ["I9", 800]],
+        status: "Pending CA",
+        route: ["Factory Head", "CA"],
+        step: 1,
+        advance: 2e5,
+        advStatus: "Not Required",
+        expected: 20,
+        terms: "20% advance, balance 30 days.",
+        events: [[-4, P, "Draft created and submitted for approval"], [-3, F, "Approved \u2013 OK to proceed, needs CA since above Rs 10 Lac"]]
+      },
+      {
+        n: 8,
+        vendor: "V6",
+        date: -2,
+        lines: [["I7", 100], ["I10", 50]],
+        status: "Approved",
+        route: ["Factory Head"],
+        step: 1,
+        advance: 3e4,
+        advStatus: "Requested",
+        expected: 12,
+        terms: "Advance before dispatch.",
+        events: [[-2, P, "Draft created and submitted for approval"], [-1, F, "Approved"], [-1, "System", "Advance request sent to Accounts"]]
+      },
+      {
+        n: 9,
+        vendor: "V4",
+        date: -1,
+        lines: [["I3", 200], ["I11", 20]],
+        status: "Pending Factory Head",
+        route: ["Factory Head"],
+        step: 0,
+        advance: 0,
+        advStatus: "Not Required",
+        expected: 14,
+        terms: "",
+        events: [[-1, P, "Draft created and submitted for approval"]]
+      },
+      {
+        n: 10,
+        vendor: "V1",
+        date: 0,
+        lines: [["I2", 25]],
+        status: "Draft",
+        route: [],
+        step: 0,
+        advance: 0,
+        advStatus: "Not Required",
+        expected: 21,
+        terms: "",
+        events: [[0, P, "Draft created"]]
+      }
+    ];
+    const poNo = (n) => "PO-" + String(n).padStart(4, "0");
+    const lineRows = [];
+    const logRows = [];
+    let lg = 0;
+    const poRows = pos.map((p) => {
+      p.lines.forEach(([item, qty]) => lineRows.push({
+        id: `po${p.n}:${item}`,
+        poId: `po${p.n}`,
+        poNo: poNo(p.n),
+        itemId: item,
+        itemName: iName[item],
+        qty,
+        price: price(p.vendor, item),
+        queryNote: p.n === 5 ? "Vendor invoice shows Rs 99 per carton, PO says Rs 95" : "",
+        queryStatus: p.n === 5 ? "Open" : "",
+        queryBy: p.n === 5 ? S : ""
+      }));
+      p.events.forEach(([d, who, text]) => logRows.push({ id: "lg" + ++lg, time: iso(d), user: who, role: "", action: "sample", event: text, ref: `po${p.n}`, detail: "sample data" }));
+      const sentVia = p.n === 3 ? "WhatsApp" : p.sent !== void 0 ? "Email" : "";
+      return {
+        id: `po${p.n}`,
+        poNo: poNo(p.n),
+        date: D(p.date),
+        vendorId: p.vendor,
+        vendorName: vName[p.vendor],
+        terms: p.terms,
+        advanceRequired: p.advance > 0,
+        advanceAmount: p.advance,
+        expectedDate: D(p.expected),
+        status: p.status,
+        advanceStatus: p.advStatus,
+        route: p.route.join(","),
+        step: p.step,
+        sentVia,
+        sentTo: sentVia === "Email" ? p.vendor.toLowerCase() + "@example.com" : sentVia === "WhatsApp" ? "9198000000" + p.vendor.slice(1) : "",
+        createdBy: P,
+        department: "Purchase"
+      };
+    });
+    const rcs = [
+      { id: "r1", po: 1, grn: 1, inv: "DH-221", date: -55, lines: [["I6", 400, 18]], advAdj: 0, accepted: -53 },
+      { id: "r2", po: 2, grn: 2, inv: "SM/114", date: -35, lines: [["I1", 120, 18]], advAdj: 1e5, accepted: -33 },
+      { id: "r3", po: 3, grn: 3, inv: "FF-778", date: -20, lines: [["I3", 300, 18], ["I4", 800, 18]], advAdj: 0, accepted: -18 },
+      { id: "r4", po: 4, grn: 4, inv: "KT-5502", date: -2, lines: [["I5", 60, 18]], advAdj: 0 }
+    ];
+    const receiptRows = [], stockRows = [];
+    const payable = {};
+    for (const r of rcs) {
+      const po = pos.find((p) => p.n === r.po);
+      const priced = r.lines.map(([item, qty, tax2]) => ({ item, qty, tax: tax2, price: price(po.vendor, item) }));
+      const sub = r2(priced.reduce((a, l) => a + l.qty * l.price, 0));
+      const tax = r2(priced.reduce((a, l) => a + l.qty * l.price * l.tax / 100, 0));
+      const vi = vendorOf[po.vendor];
+      payable[r.id] = r2(sub + tax - r.advAdj);
+      receiptRows.push({
+        id: r.id,
+        grnNo: "GRN-" + String(r.grn).padStart(4, "0"),
+        type: "Invoice",
+        poId: `po${po.n}`,
+        poNo: poNo(po.n),
+        vendorId: po.vendor,
+        vendorName: vName[po.vendor],
+        invoiceNo: r.inv,
+        invoiceDate: D(r.date),
+        receivedDate: D(r.date),
+        subtotal: sub,
+        taxTotal: tax,
+        grandTotal: r2(sub + tax),
+        advanceAdjusted: r.advAdj,
+        payable: payable[r.id],
+        dueDate: addDays(D(r.date), vi.msme ? Math.min(vi.terms, 45) : vi.terms),
+        accepted: r.accepted !== void 0,
+        acceptedDate: r.accepted !== void 0 ? D(r.accepted) : "",
+        invoiceFile: "",
+        createdBy: S
+      });
+      priced.forEach((l) => stockRows.push({
+        id: `${r.id}:${l.item}`,
+        date: D(r.date),
+        itemId: l.item,
+        itemName: iName[l.item],
+        type: "IN",
+        qty: l.qty,
+        receiptId: r.id,
+        grnNo: "GRN-" + String(r.grn).padStart(4, "0"),
+        price: l.price,
+        taxRate: l.tax,
+        toDept: "",
+        note: "",
+        by: S
+      }));
+    }
+    const opening = (id, vendor, ref, amount, due) => ({
+      id,
+      grnNo: "",
+      type: "Opening",
+      poId: "",
+      poNo: "",
+      vendorId: vendor,
+      vendorName: vName[vendor],
+      invoiceNo: ref,
+      invoiceDate: D(-40),
+      receivedDate: D(-40),
+      subtotal: amount,
+      taxTotal: 0,
+      grandTotal: amount,
+      advanceAdjusted: 0,
+      payable: amount,
+      dueDate: D(due),
+      accepted: true,
+      acceptedDate: D(-40),
+      invoiceFile: "",
+      createdBy: A
+    });
+    receiptRows.push(opening("ob1", "V3", "Old bill KT-2291 (before this system)", 85e3, -12), opening("ob2", "V2", "Old bill FF-0912 (before this system)", 42e3, 10));
+    const pay = (id, kind, poN, receiptId, amount, date, vendor) => ({
+      id,
+      kind,
+      poId: poN ? `po${poN}` : "",
+      poNo: poN ? poNo(poN) : "",
+      receiptId,
+      vendorName: vName[vendor],
+      amount,
+      date: D(date),
+      screenshot: "",
+      paidBy: A
+    });
+    const paymentRows = [
+      pay("pay1", "invoice", 1, "r1", payable.r1, -40, "V6"),
+      pay("pay2", "advance", 2, "", 1e5, -46, "V1"),
+      pay("pay3", "invoice", 2, "r2", 15e4, -20, "V1"),
+      // part payment: leaves an overdue MSME balance
+      pay("pay4", "invoice", 3, "r3", 5e5, -8, "V2"),
+      pay("pay5", "invoice", null, "ob2", 1e4, -3, "V2")
+    ];
+    const mv = (id, d, item, type, qty, toDept, note, by) => ({ id, date: D(d), itemId: item, itemName: iName[item], type, qty, receiptId: "", grnNo: "", price: 0, taxRate: 0, toDept, note, by });
+    const opening60 = (id, item, qty) => mv(id, -62, item, "ADJUST", qty, "", "Opening stock", H);
+    stockRows.push(
+      opening60("os1", "I1", 30),
+      opening60("os2", "I2", 12),
+      opening60("os3", "I3", 40),
+      opening60("os4", "I4", 100),
+      opening60("os5", "I5", 25),
+      opening60("os6", "I6", 150),
+      opening60("os7", "I7", 60),
+      opening60("os8", "I8", 80),
+      opening60("os9", "I9", 200),
+      opening60("os10", "I10", 20),
+      opening60("os11", "I11", 5),
+      mv("o1", -15, "I1", "OUT", 60, "Production", "Batch 14", S),
+      mv("o2", -3, "I1", "OUT", 50, "Assembly", "", S),
+      mv("o3", -6, "I2", "OUT", 4, "Production", "Motorised model", S),
+      mv("o4", -10, "I3", "OUT", 120, "Production", "", S),
+      mv("o5", -9, "I3", "ADJUST", -5, "", "Damaged in handling", H),
+      mv("o6", -8, "I4", "OUT", 250, "Cutting", "Batch 14", S),
+      mv("o7", -1, "I5", "OUT", 30, "Assembly", "", S),
+      mv("o8", -5, "I6", "OUT", 200, "Packing", "", S),
+      mv("o9", -7, "I8", "OUT", 30, "Assembly", "", S)
+    );
+    const sys = (rows) => rows.map((r) => ({ ...r, _v: 1, _at: iso(0), _by: "sample" }));
+    return {
+      items: sys(itemSpec.map((i) => ({ id: i[0], name: i[1], unit: i[2], category: i[3], minStock: i[4], active: i[5] }))),
+      vendors: sys(vendorSpec.map((v) => ({
+        id: v[0],
+        name: v[1],
+        contact: v[2],
+        email: v[0].toLowerCase() + "@example.com",
+        whatsapp: "9198000000" + v[0].slice(1),
+        msme: v[5],
+        msmeType: v[6],
+        udyamNo: v[5] ? `UDYAM-${v[4].slice(0, 2).toUpperCase()}-01-000000${v[0].slice(1)}` : "",
+        gstin: `07AAAAA000${v[0].slice(1)}A1Z5`,
+        pan: `AAAAA000${v[0].slice(1)}A`,
+        address: "Industrial Area, Plot " + v[0].slice(1),
+        city: v[3],
+        state: v[4],
+        paymentTermsDays: v[7],
+        bankName: v[8],
+        accountNo: v[9],
+        ifsc: "BANK0001234",
+        active: v[10]
+      }))),
+      prices: sys(priceSpec.map(([v, i, p]) => ({ id: `${v}:${i}`, vendorId: v, vendorName: vName[v], itemId: i, itemName: iName[i], price: p }))),
+      pos: sys(poRows),
+      poLines: sys(lineRows),
+      receipts: sys(receiptRows),
+      payments: sys(paymentRows),
+      stock: sys(stockRows),
+      log: logRows
+    };
+  }
+
   // src/shared/core.ts
   var ApiError = class extends Error {
     constructor(message, code = "ERROR") {
@@ -695,7 +1140,7 @@ var Core = (() => {
     return rest;
   };
   var lc = (s) => String(s != null ? s : "").trim().toLowerCase();
-  var r2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
+  var r22 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
   function settingsOf(db) {
     const o = {};
     db.rows("settings").forEach((r) => {
@@ -758,7 +1203,7 @@ var Core = (() => {
   function balances(db) {
     const b = {};
     db.rows("stock").forEach((r) => {
-      if (r.itemId) b[r.itemId] = r2((b[r.itemId] || 0) + signed(r));
+      if (r.itemId) b[r.itemId] = r22((b[r.itemId] || 0) + signed(r));
     });
     return b;
   }
@@ -866,11 +1311,11 @@ var Core = (() => {
     const full = balances(db);
     const shown = {};
     stockOut.forEach((x) => {
-      shown[x.itemId] = r2((shown[x.itemId] || 0) + signed(x));
+      shown[x.itemId] = r22((shown[x.itemId] || 0) + signed(x));
     });
     const stockBase = {};
     Object.keys(full).forEach((k) => {
-      stockBase[k] = r2(full[k] - (shown[k] || 0));
+      stockBase[k] = r22(full[k] - (shown[k] || 0));
     });
     const data = {
       items: db.rows("items").filter((r) => r.id).map(clean),
@@ -958,7 +1403,7 @@ var Core = (() => {
         if (action === "po.submit" && !cur) bad("Save the PO first");
         if (!db.find("vendors", p.vendorId)) bad("Unknown vendor");
         if (p.status === "Draft" || cur && cur.status === "Rejected" && p.status === "Rejected") continue;
-        const value = r2(v.lines(p.id).reduce((a, l) => a + l.qty * l.price, 0));
+        const value = r22(v.lines(p.id).reduce((a, l) => a + l.qty * l.price, 0));
         const route = routeFor(approvers, value);
         const want = route.length ? PENDING(route[0]) : "Approved";
         if (p.status !== want || p.route !== route.join(",") || p.step !== 0) bad("Approval route does not match the Roles tab (Approves POs above)");
@@ -1345,6 +1790,33 @@ var Core = (() => {
     if (extra) fill(extra);
     fill(configSeed());
     return "Setup complete.";
+  }
+  function loadSample(host, today) {
+    const db = new Db(host);
+    if (DATA_TABLES.some((k) => db.rows(k).length > 0)) return "Not loaded: the spreadsheet already has data. Sample data is only added to an empty system.";
+    const data = sampleData(today);
+    for (const k of Object.keys(data)) for (const r of data[k]) db.put(k, r);
+    for (const u of sampleUsers()) if (!db.rows("users").some((x) => lc(x.loginId) === lc(u.loginId))) db.put("users", u);
+    host.bumpStamp();
+    return "Sample data loaded: 6 vendors, 12 items, 18 vendor prices, 10 POs, receipts, payments, stock movements. Log in with demo.purchase / demo.factory / demo.ca / demo.ho / demo.accounts / demo.store (password Demo@1234). Remove everything with clearAllDataBeforeGoingLive() before real use.";
+  }
+  function clearAllData(host) {
+    let n = 0;
+    const wipe = (sheet) => {
+      const rows = host.read(sheet);
+      rows.sort((a, b) => b.__row - a.__row).forEach((r) => {
+        host.remove(sheet, r.__row);
+        n++;
+      });
+    };
+    DATA_TABLES.forEach((k) => wipe(def(k).sheet));
+    wipe(def("log").sheet);
+    host.read(def("users").sheet).filter((u) => lc(u[def("users").cols[0].header]).indexOf(SAMPLE_USER_PREFIX) === 0).sort((a, b) => b.__row - a.__row).forEach((u) => {
+      host.remove(def("users").sheet, u.__row);
+      n++;
+    });
+    host.bumpStamp();
+    return n;
   }
   return __toCommonJS(core_exports);
 })();

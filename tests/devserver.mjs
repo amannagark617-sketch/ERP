@@ -6,7 +6,8 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const empty = process.argv.includes('--empty');
+const empty = process.argv.includes('--empty') || process.argv.includes('--sample');
+const sample = process.argv.includes('--sample');
 const port = Number(process.argv.find(a => /^\d+$/.test(a))) || 8787;
 const dir = mkdtempSync(join(tmpdir(), 'erp-dev-'));
 writeFileSync(join(dir, 'e.ts'), `export * from '${process.cwd()}/src/shared/core'; export * from '${process.cwd()}/src/shared/memhost'; export * from '${process.cwd()}/tests/fixture';`);
@@ -15,6 +16,7 @@ const M = await import(join(dir, 'b.mjs'));
 const host = M.createMemHost();
 M.setup(host, empty ? undefined : M.fixture(new Date().toISOString().slice(0, 10)));
 if (empty) host.update('Users', host.read('Users')[0].__row, { Password: 'admin-pass' });
+if (sample) console.log(M.loadSample(host, new Date().toISOString().slice(0, 10)));
 
 createServer((req, res) => {
   const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': '*' };

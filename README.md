@@ -84,6 +84,16 @@ Commit it (or send it to me and I will). Every user's browser then connects auto
 3. Use AI Studio's **Deploy** to publish and share the link with staff.
    *(Menu names change from time to time; any static host also works: `npm install && npm run build`, then upload the `dist/` folder to Netlify, Vercel, Firebase Hosting, GitHub Pages…)*
 
+### Step 7½ (optional) – See it working with sample data first
+Not sure how it should look? In Apps Script choose **`loadSampleData`** → **Run**. It fills the empty Sheet with realistic sample data:
+6 vendors (MSME and non-MSME, with Udyam numbers), 12 items – some sold by 3 vendors at different prices – 10 POs at every stage (draft, waiting for approval,
+waiting for CA, rejected, approved/advance due, sent, delayed, part-received, closed), receipts, payments, an open price query, old pending balances
+(one overdue MSME bill), stock in/out, and two low-stock items.
+It also adds six logins to try each role: `demo.purchase`, `demo.factory`, `demo.ca`, `demo.ho`, `demo.accounts`, `demo.store` – password **`Demo@1234`**.
+It only works on an empty system and never overwrites anything.
+**Before real use run `clearAllDataBeforeGoingLive`** – after a confirmation box it deletes all sample vendors, items, POs, stock… and the demo logins (your admin, Roles and Settings stay).
+Never run that function once real data is in.
+
 ### Step 8 – First use
 1. Log in as `admin` → **Items & Prices** → **+ New item**; **Vendors** → **+ New vendor** (MSME, Udyam, GSTIN, bank, and its price list).
 2. Stock already in the factory? **Stock → Adjust stock** (reason "Opening stock") – one line per item. Bills from before the app? **Accounts → Add an old pending balance**.

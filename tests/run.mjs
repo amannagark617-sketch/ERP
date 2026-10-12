@@ -312,4 +312,47 @@ await test('a fresh setup has no business data and no usable password', () => {
   assert.equal(M.handle(h2, { action: 'bootstrap', token: ok.token }).partial, false);
 });
 
+console.log('optional sample data');
+await test('sample data loads into an empty system, is consistent, and works with the real workflow', () => {
+  const h = M.createMemHost();
+  M.setup(h);
+  h.update('Users', h.read('Users')[0].__row, { Password: 'Admin-Pass-1' });
+  const msg = M.loadSample(h, TODAY);
+  assert.match(msg, /Sample data loaded/);
+  assert.match(M.loadSample(h, TODAY), /Not loaded/, 'never loads on top of existing data');
+  const tk = (id) => { const r = M.handle(h, { action: 'login', loginId: id, password: 'Demo@1234' }); assert.ok(r.ok, id + ': ' + r.error); return r.token; };
+  const B = (t) => M.handle(h, { action: 'bootstrap', token: t, all: true });
+  const C = (t, name, ops, note = '') => M.handle(h, { action: 'commit', token: t, name, ops, note });
+  const b = B(tk('demo.purchase'));
+  assert.equal(b.data.pos.length, 10); assert.equal(b.data.vendors.length, 7); assert.equal(b.data.items.length, 12); assert.equal(b.data.prices.length, 18);
+  assert.equal(b.data.prices.filter(p => p.itemId === 'I3').length, 3, 'one item sold by three vendors');
+  // stock on hand & low-stock alerts
+  const onHand = (id) => (b.stockBase[id] || 0) + b.data.stock.reduce((a, s) => a + (s.itemId === id ? (s.type === 'OUT' ? -s.qty : s.qty) : 0), 0);
+  assert.deepEqual(['I1', 'I2', 'I3', 'I4', 'I5', 'I6'].map(onHand), [40, 8, 215, 650, 55, 350]);
+  const low = b.data.items.filter(i => i.minStock > 0 && onHand(i.id) <= i.minStock).map(i => i.id);
+  assert.deepEqual(low, ['I1', 'I2'], 'two low-stock items');
+  // payments never exceed what is payable; the story the sample tells
+  const paid = (rid) => b.data.payments.filter(p => p.receiptId === rid).reduce((a, p) => a + p.amount, 0);
+  b.data.receipts.forEach(r => assert.ok(paid(r.id) <= r.payable + 0.01, r.id));
+  assert.equal(paid('r1'), 48144); assert.equal(paid('r2'), 150000, 'part-paid MSME invoice'); assert.ok(b.data.receipts.find(r => r.id === 'r2').dueDate < TODAY, 'and it is overdue'); assert.equal(b.data.receipts.find(r => r.id === 'r3').payable - paid('r3'), 551380);
+  assert.equal(b.data.receipts.find(r => r.id === 'ob1').dueDate < TODAY, true, 'an overdue MSME old balance');
+  assert.equal(b.data.poLines.find(l => l.id === 'po5:I6').queryStatus, 'Open', 'an open price query');
+  assert.equal(M.handle(h, { action: 'history', token: tk('demo.purchase'), ref: 'po2' }).entries.length, 7);
+  // the sample can be worked through by the real rules
+  const po9 = b.data.pos.find(p => p.id === 'po9'), po7 = b.data.pos.find(p => p.id === 'po7');
+  assert.ok(C(tk('demo.factory'), 'po.approve', [up('pos', { ...po9, status: 'Approved', step: 1, advanceStatus: 'Not Required' })], 'Approved').ok);
+  assert.ok(C(tk('demo.ca'), 'po.approve', [up('pos', { ...po7, status: 'Approved', step: 2, advanceStatus: 'Requested' })], 'Approved').ok);
+  const r4 = b.data.receipts.find(r => r.id === 'r4');
+  assert.ok(C(tk('demo.accounts'), 'invoice.accept', [up('receipts', { ...r4, accepted: true, acceptedDate: TODAY })]).ok);
+  assert.ok(C(tk('demo.accounts'), 'payment.make', [up('payments', { id: 'px', kind: 'invoice', poId: 'po4', receiptId: 'r4', amount: r4.payable, date: TODAY, screenshot: '' })]).ok);
+  assert.ok(C(tk('demo.store'), 'stock.issue', [up('stock', { id: 'sx', date: TODAY, itemId: 'I3', type: 'OUT', qty: 10, toDept: 'Production', note: '' })]).ok);
+  // cleanup before going live keeps the admin, roles and settings
+  const n = M.clearAllData(h);
+  assert.ok(n > 100);
+  for (const tab of ['Vendors', 'Items', 'Prices', 'PurchaseOrders', 'POLines', 'Receipts', 'Payments', 'Stock', 'Log']) assert.equal(h.read(tab).length, 0, tab);
+  assert.deepEqual(h.read('Users').map(u => u['Login ID']), ['admin']); assert.equal(h.read('Roles').length, 7); assert.ok(h.read('Settings').length >= 5);
+  assert.ok(M.handle(h, { action: 'login', loginId: 'admin', password: 'Admin-Pass-1' }).ok, 'admin still works');
+  assert.match(M.loadSample(h, TODAY), /Sample data loaded/, 'and it can be loaded again');
+});
+
 console.log(`\n${passed} passed`);

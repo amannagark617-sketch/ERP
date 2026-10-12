@@ -53,7 +53,7 @@ export default function Stock() {
             <tbody>{log.slice(0, limit).map(m => (
               <tr key={m.key}><td>{fmtDate(m.date)}</td><td>{itemName(s, m.itemId)}</td>
                 <td><span className={m.type === 'IN' ? 'ok' : m.type === 'OUT' ? 'bad' : 'mut'}>{m.type}</span></td>
-                <td className="r">{m.type === 'OUT' ? '−' : m.type === 'ADJUST' && m.qty > 0 ? '+' : m.type === 'IN' ? '+' : ''}{num(Math.abs(m.qty))}</td>
+                <td className="r">{m.type === 'OUT' || (m.type === 'ADJUST' && m.qty < 0) ? '−' : '+'}{num(Math.abs(m.qty))}</td>
                 <td>{m.ref}</td><td className="mut">{m.note}</td><td className="mut">{m.by}</td></tr>
             ))}</tbody>
           </table></div>

@@ -105,7 +105,7 @@ export default function Accounts() {
               const po = poOf(s, p.poId ?? '');
               const r = s.receipts.find(x => x.id === p.receiptId);
               return <tr key={p.id}><td>{fmtDate(p.date)}</td><td>{p.kind}</td><td>{vendorOf(s, r?.vendorId ?? po?.vendorId ?? '')?.name}</td>
-                <td>{po ? po.poNo : ''}{r ? ` · ${r.invoiceNo}` : ''}</td><td className="r">{inr(p.amount)}</td><td><FileLink id={p.screenshot} /></td></tr>;
+                <td>{[po?.poNo, r?.invoiceNo].filter(Boolean).join(' · ')}</td><td className="r">{inr(p.amount)}</td><td><FileLink id={p.screenshot} /></td></tr>;
             })}</tbody>
           </table></div>
         )}

@@ -6,6 +6,7 @@ import { DATA_TABLES, TABLES, TableKey, allCols, def, fromSheet, toSheet } from 
 import { sha256 } from './sha256';
 import { configSeed } from './seed';
 import { approversOf, routeFor } from './approval';
+import { SAMPLE_USER_PREFIX, sampleData, sampleUsers } from './sample';
 
 export interface Host {
   now(): string;                                   // ISO timestamp
@@ -662,6 +663,37 @@ export function setup(host: Host, extra?: Partial<Record<TableKey, any[]>>): str
   if (extra) fill(extra);
   fill(configSeed());
   return 'Setup complete.';
+}
+
+/**
+ * Fill the empty business tabs with realistic SAMPLE data (plus six demo.* logins) so the system can be explored.
+ * Refuses if the sheet already holds any business data.
+ */
+export function loadSample(host: Host, today: string): string {
+  const db = new Db(host);
+  if (DATA_TABLES.some(k => db.rows(k).length > 0)) return 'Not loaded: the spreadsheet already has data. Sample data is only added to an empty system.';
+  const data = sampleData(today) as Record<string, any[]>;
+  for (const k of Object.keys(data) as TableKey[]) for (const r of data[k]) db.put(k, r);
+  for (const u of sampleUsers()) if (!db.rows('users').some(x => lc(x.loginId) === lc(u.loginId))) db.put('users', u);
+  host.bumpStamp();
+  return 'Sample data loaded: 6 vendors, 12 items, 18 vendor prices, 10 POs, receipts, payments, stock movements. '
+    + 'Log in with demo.purchase / demo.factory / demo.ca / demo.ho / demo.accounts / demo.store (password Demo@1234). '
+    + 'Remove everything with clearAllDataBeforeGoingLive() before real use.';
+}
+
+/** Delete ALL business data (every row of the data tabs and the Log) and the demo.* logins. Keeps Users, Roles and Settings. */
+export function clearAllData(host: Host): number {
+  let n = 0;
+  const wipe = (sheet: string) => {
+    const rows = host.read(sheet);
+    rows.sort((a, b) => b.__row - a.__row).forEach(r => { host.remove(sheet, r.__row); n++; });
+  };
+  DATA_TABLES.forEach(k => wipe(def(k).sheet));
+  wipe(def('log').sheet);
+  host.read(def('users').sheet).filter(u => lc(u[def('users').cols[0].header]).indexOf(SAMPLE_USER_PREFIX) === 0)
+    .sort((a, b) => b.__row - a.__row).forEach(u => { host.remove(def('users').sheet, u.__row); n++; });
+  host.bumpStamp();
+  return n;
 }
 
 export { DATA_TABLES };

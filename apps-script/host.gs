@@ -171,3 +171,36 @@ function installBackup() {
   backupNow();
   Logger.log('Backup installed: a copy is made on the 1st of every month into the Drive folder "' + BACKUP_FOLDER + '" (last ' + BACKUP_KEEP + ' kept). First copy made now.');
 }
+
+// ---------------------------------------------------------------- sample data (optional)
+
+/**
+ * OPTIONAL. Fills the EMPTY business tabs with realistic sample data so you can see how everything looks and try each role:
+ * 6 vendors, 12 items (several sold by 3 vendors at different prices), 10 POs at every stage, receipts, payments,
+ * old pending balances, stock in/out, 2 low-stock items. Also adds 6 logins: demo.purchase, demo.factory, demo.ca,
+ * demo.ho, demo.accounts, demo.store (password Demo@1234). Does nothing if the sheet already has data.
+ */
+function loadSampleData() {
+  var msg = Core.loadSample(host, Utilities.formatDate(new Date(), 'Asia/Kolkata', 'yyyy-MM-dd'));
+  Logger.log(msg);
+  try { SpreadsheetApp.getUi().alert(msg); } catch (e) { /* not run from a Sheet window */ }
+  return msg;
+}
+
+/**
+ * Run this BEFORE GOING LIVE if you loaded the sample data. Deletes every vendor, item, price, PO, receipt, payment, stock
+ * movement and log row, and the demo.* logins. Keeps Users (your admin), Roles and Settings. Asks for confirmation first.
+ */
+function clearAllDataBeforeGoingLive() {
+  var ui;
+  try { ui = SpreadsheetApp.getUi(); } catch (e) { throw new Error('Open the spreadsheet in another browser tab, then run this again so a confirmation box can be shown.'); }
+  var answer = ui.alert('Delete ALL data?',
+    'This permanently deletes every vendor, item, price, PO, receipt, payment, stock movement and log entry, and the demo.* logins.\n\n' +
+    'Users (your admin), Roles and Settings are kept.\n\nOnly do this before real use. Continue?', ui.ButtonSet.YES_NO);
+  if (answer !== ui.Button.YES) { Logger.log('Cancelled - nothing deleted.'); return 'Cancelled'; }
+  var n = Core.clearAllData(host);
+  var msg = 'Done: ' + n + ' rows deleted. The system is empty and ready for real data.';
+  Logger.log(msg);
+  ui.alert(msg);
+  return msg;
+}
