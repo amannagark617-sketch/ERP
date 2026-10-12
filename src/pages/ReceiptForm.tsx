@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import { actions, uploadFile, useAuth, useStore } from '../store';
-import { advanceAvailable, computeReceipt, itemName, pendingQty, receivedQty, vendorOf } from '../domain';
+import { advanceAvailable, computeReceipt, itemName, lineName, pendingQty, receivedQty, sameLine, vendorOf } from '../domain';
 import { Card, Field, FileInput, Link, go, run } from '../ui';
 import { cfg } from '../config';
 import { inr, today } from '../utils';
 
-interface Row { itemId: string; selected: boolean; qty: number; poQty: number; tax: number }
+interface Row { itemId: string; brand: string; selected: boolean; qty: number; poQty: number; tax: number }
 
 export default function ReceiptForm({ poId }: { poId: string }) {
   const s = useStore();
@@ -19,7 +19,7 @@ export default function ReceiptForm({ poId }: { poId: string }) {
   const [invoiceTotal, setInvoiceTotal] = useState(0);
   const [mismatch, setMismatch] = useState(false);
   const [rows, setRows] = useState<Row[]>(() =>
-    (po?.lines ?? []).map(l => ({ itemId: l.itemId, selected: false, qty: pendingQty(s, po!, l.itemId), poQty: l.qty, tax: cfg.taxRates.includes(18) ? 18 : cfg.taxRates[0] })));
+    (po?.lines ?? []).map(l => ({ itemId: l.itemId, brand: l.brand, selected: false, qty: pendingQty(s, po!, l), poQty: l.qty, tax: cfg.taxRates.includes(18) ? 18 : cfg.taxRates[0] })));
   const [queryNote, setQueryNote] = useState('');
 
   if (!po) return <p>PO not found.</p>;
@@ -27,10 +27,10 @@ export default function ReceiptForm({ poId }: { poId: string }) {
   if (po.status !== 'Sent to Vendor') return <div className="warn">This PO has not been sent to the vendor yet.</div>;
 
   const vendor = vendorOf(s, po.vendorId)!;
-  const price = (itemId: string) => po.lines.find(l => l.itemId === itemId)!.price;
+  const price = (r: { itemId: string; brand: string }) => po.lines.find(l => sameLine(l, r))!.price;
   const set = (i: number, patch: Partial<Row>) => setRows(rows.map((r, k) => (k === i ? { ...r, ...patch } : r)));
   const picked = rows.filter(r => r.selected && r.qty > 0);
-  const totals = computeReceipt(picked.map(r => ({ qty: r.qty, price: price(r.itemId), taxRate: r.tax })));
+  const totals = computeReceipt(picked.map(r => ({ qty: r.qty, price: price(r), taxRate: r.tax })));
   const advance = Math.min(totals.grandTotal, advanceAvailable(s, po.id));
   const diff = Math.round((totals.grandTotal - invoiceTotal) * 100) / 100;
   const matches = Math.abs(diff) <= cfg.tolerance;
@@ -41,15 +41,15 @@ export default function ReceiptForm({ poId }: { poId: string }) {
       const invoiceFile = await uploadFile(file, po.poNo);
       await actions.createReceipt({
         poId: po.id, invoiceNo, invoiceDate, receivedDate, invoiceTotal, invoiceFile,
-        lines: picked.map(r => ({ itemId: r.itemId, qty: r.qty, taxRate: r.tax, poQty: mismatch ? r.poQty : undefined })),
+        lines: picked.map(r => ({ itemId: r.itemId, brand: r.brand, qty: r.qty, taxRate: r.tax, poQty: mismatch ? r.poQty : undefined })),
       });
     });
     setSaving(false);
     if (ok) go(`/pos/${po.id}`);
   };
-  const refer = async (itemId: string) => {
+  const refer = async (r: Row) => {
     if (!queryNote.trim()) { alert('Describe the price difference first'); return; }
-    if (await run(() => actions.raiseQuery(po.id, itemId, queryNote.trim()))) alert('Referred to the Admin.');
+    if (await run(() => actions.raiseQuery(po.id, { itemId: r.itemId, brand: r.brand }, queryNote.trim()))) alert('Referred to the Admin.');
   };
 
   return (
@@ -68,17 +68,18 @@ export default function ReceiptForm({ poId }: { poId: string }) {
       <Card title="Items received" actions={
         <label className="row"><input type="checkbox" checked={mismatch} onChange={e => setMismatch(e.target.checked)} /> PO and invoice do not match (allows editing PO quantity)</label>}>
         <div className="tablewrap"><table>
-          <thead><tr><th></th><th>Item</th><th className="r">Price (locked)</th><th className="r">PO qty</th><th className="r">Already received</th><th className="r">Received now</th><th>Tax</th><th className="r">Amount</th></tr></thead>
+          <thead><tr><th></th><th>Item</th><th>Brand</th><th className="r">Price (locked)</th><th className="r">PO qty</th><th className="r">Already received</th><th className="r">Received now</th><th>Tax</th><th className="r">Amount</th></tr></thead>
           <tbody>{rows.map((r, i) => (
-            <tr key={r.itemId}>
+            <tr key={r.itemId + '|' + r.brand}>
               <td><input type="checkbox" checked={r.selected} onChange={e => set(i, { selected: e.target.checked })} /></td>
               <td>{itemName(s, r.itemId)}</td>
-              <td className="r">{inr(price(r.itemId))}</td>
+              <td>{r.brand || <span className="mut">—</span>}</td>
+              <td className="r">{inr(price(r))}</td>
               <td className="r">{mismatch ? <input type="number" min={0} style={{ width: 80 }} value={r.poQty} onChange={e => set(i, { poQty: +e.target.value })} /> : r.poQty}</td>
-              <td className="r">{receivedQty(s, po.id, r.itemId)}</td>
+              <td className="r">{receivedQty(s, po.id, r.itemId, r.brand)}</td>
               <td className="r"><input type="number" min={0} style={{ width: 80 }} value={r.qty} disabled={!r.selected} onChange={e => set(i, { qty: +e.target.value })} /></td>
               <td><select value={r.tax} disabled={!r.selected} onChange={e => set(i, { tax: +e.target.value })}>{cfg.taxRates.map(x => <option key={x} value={x}>{x === 0 ? '0% (Nil)' : x + '%'}</option>)}</select></td>
-              <td className="r">{r.selected ? inr(r.qty * price(r.itemId)) : '—'}</td>
+              <td className="r">{r.selected ? inr(r.qty * price(r)) : '—'}</td>
             </tr>
           ))}</tbody>
         </table></div>
@@ -87,7 +88,7 @@ export default function ReceiptForm({ poId }: { poId: string }) {
             Price can't be changed here. If the invoice price differs, refer it to the Admin:
             <div className="row" style={{ marginTop: 6 }}>
               <input placeholder="e.g. Invoice shows 2,500 vs PO 2,400" value={queryNote} onChange={e => setQueryNote(e.target.value)} style={{ flex: 1, minWidth: 220 }} />
-              {rows.filter(r => r.selected).map(r => <button key={r.itemId} className="btn sm" onClick={() => refer(r.itemId)}>Refer {itemName(s, r.itemId)}</button>)}
+              {rows.filter(r => r.selected).map(r => <button key={r.itemId + '|' + r.brand} className="btn sm" onClick={() => refer(r)}>Refer {lineName(s, r)}</button>)}
             </div>
           </div>
         )}

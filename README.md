@@ -28,11 +28,11 @@ Tab colours tell you what to touch: **orange = access/settings**, **green = mast
 | `Settings` | ✏️ | Company name, MSME max days (45), tax rates (`0,5,18`), invoice tolerance, how many months of settled history the app loads |
 | `Vendors` | ✏️ | Name, contact, email/WhatsApp, **MSME**, **MSME type**, **Udyam No**, GSTIN, PAN, address, payment terms, bank details, Active |
 | `Items` | ✏️ | Item name, unit, category, min-stock alert, Active |
-| `Prices` | ✏️ | **One row per vendor + item**: who sells what, at what price |
+| `Prices` | ✏️ | **One row per vendor + item + brand**: who sells what, in which **Brand**, at what price. Same vendor, same item, two brands = two rows |
 | `PurchaseOrders`, `POLines` | app | Every PO and its items |
 | `Receipts` | app | Goods received + invoice (also holds *old pending balances* as type "Opening") |
 | `Payments` | app | Advances and invoice payments |
-| `Stock` | app | **The stock in / out log**: IN (from goods receipts), OUT (issued), ADJUST (corrections) |
+| `Stock` | app | **The stock in / out log**: IN (from goods receipts), OUT (issued), ADJUST (corrections) – each line carries the **Brand** |
 | `Log` | app | Who did what, when (also the PO history shown in the app) |
 
 Columns are matched by **header name**: you may re-order columns or add your own extra ones (notes, pivots, charts). Don't rename or delete existing headers.
@@ -119,6 +119,9 @@ Nothing real is lost – just start clean. Easiest (keeps your Web app URL):
 | **Add an item** | Items & Prices → **+ New item** (or type a row in the `Items` tab) |
 | **Stop using an item** | Items & Prices → Edit → **Archive item** (hidden from new POs; old POs keep it). Items are never deleted, so history never breaks |
 | **Five vendors sell the same item at different prices** | Give each vendor a price for that item (Items & Prices → Edit → *Add a vendor*, or Vendors → Edit → *Add an item*, or a row per vendor in the `Prices` tab). The item list shows them **cheapest first**; on a PO the form warns "cheaper elsewhere" |
+| **Say which brand a product is** | Put it in the **Brand** column of the `Prices` tab (or in the app: Items & Prices → Edit → *Brand*, or Vendors → Edit → *Brand*). Leave it empty for items without a brand. The brand then follows the product everywhere: PO line → PO PDF → goods receipt → stock |
+| **A vendor sells the same item in two brands** | Two rows in `Prices` (same vendor, same item, different Brand), each with its own price. On the PO you pick the row you want |
+| **See stock of one brand** | Stock screen: an item with several brands shows one line per brand (e.g. Foam sheet 40D: ComfortPlus 215, Duraflex 30). *Issue stock* asks for the brand and only lets you issue what that brand has |
 | **Change a price** | Same screen → change the number → Save. Open POs keep the price they were raised with; new POs use the new price |
 | **Add / remove a vendor** | Vendors → New / Edit (set *Active = No* to retire) |
 | **Get the PO as a PDF** | Open the PO → **⬇ Download PO (PDF)**. Works at every stage; until the PO is approved the PDF carries a red *DRAFT – not for issue* watermark. When you press **Mark sent**, the exact PDF is also saved in Drive and linked on the PO ("PO copy sent") |
@@ -133,11 +136,23 @@ Nothing real is lost – just start clean. Easiest (keeps your Web app URL):
 
 ---
 
+## Brand
+
+Brand is part of the identity of a purchase line: **item + brand**. The price list, the PO line, the goods receipt, the stock ledger and "stock on hand" are all kept per brand, so
+
+- a PO line can only use a brand that the vendor actually lists, at that brand's price (the server checks this);
+- you can only receive a brand that is on the PO, up to the quantity still pending *for that brand*;
+- stock is counted per brand, and an issue is limited to the stock of the brand you pick;
+- "cheaper elsewhere" and the ★ cheapest mark compare the **same brand** only (a Duraflex foam is not compared with a SoftRest foam);
+- the PO PDF gets a **Brand** column whenever at least one line has a brand.
+
+Brand is optional. Upgrading an existing sheet: `setup` adds an empty **Brand** column to `Prices`, `POLines` and `Stock`; existing rows keep working with no brand. To add brands to existing prices, type them into the Brand column of `Prices` (the Key column updates itself the next time the app loads).
+
 ## The PO document
 
 A4, one or more pages, built in your browser (nothing leaves your Google account). It is branded **Little Nap Recliners** with the logo only – no company address block:
 logo and **PURCHASE ORDER** heading with the PO number in the logo's red, a vendor box (GSTIN, PAN, contact, MSME/Udyam from the vendor master), order details
-(delivery date, payment terms, advance, prepared by), a dark-header items table in Indian number format (₹ 4,80,000.00) with the order value, an **amount-in-words** band,
+(delivery date, payment terms, advance, prepared by), a dark-header items table (with a **Brand** column when any line has a brand) in Indian number format (₹ 4,80,000.00) with the order value, an **amount-in-words** band,
 an **advance payment** callout when an advance is due, **special instructions** (the PO's own terms), numbered general terms, and a Prepared by / Approved by (names and dates) / authorised-signatory block.
 Every page has a footer with the PO number and "Page 1 of 3"; continuation pages get a compact header. Until approval a red **DRAFT – not approved** watermark is printed.
 Look and feel follow the HR screening app: white page, charcoal text, the logo's red as the single accent, **Inter** font.

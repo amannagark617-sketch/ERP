@@ -1,3 +1,5 @@
+import { lineKey } from './keys';
+
 /**
  * Sheet layout - ONE Google Spreadsheet, 12 tabs.
  *   Tabs you edit by hand:   Users, Roles, Settings, Vendors, Items, Prices
@@ -64,9 +66,9 @@ export const TABLES = {
     ],
   },
   prices: {
-    sheet: 'Prices', id: 'id', kind: 'data', color: MASTER, deriveId: (r: any) => (r.vendorId && r.itemId ? `${r.vendorId}:${r.itemId}` : ''),
+    sheet: 'Prices', id: 'id', kind: 'data', color: MASTER, deriveId: (r: any) => (r.vendorId && r.itemId ? lineKey(r.vendorId, r.itemId, r.brand) : ''),
     cols: [
-      c('id', 'Key (auto)'), c('vendorName', 'Vendor Name'), c('itemName', 'Item Name'), c('price', 'Agreed Price (Rs)', 'num'),
+      c('id', 'Key (auto)'), c('vendorName', 'Vendor Name'), c('itemName', 'Item Name'), c('brand', 'Brand'), c('price', 'Agreed Price (Rs)', 'num'),
       c('vendorId', 'Vendor ID'), c('itemId', 'Item ID'),
     ],
   },
@@ -82,9 +84,9 @@ export const TABLES = {
     ],
   },
   poLines: {
-    sheet: 'POLines', id: 'id', kind: 'data', color: APP, deriveId: (r: any) => (r.poId && r.itemId ? `${r.poId}:${r.itemId}` : ''),
+    sheet: 'POLines', id: 'id', kind: 'data', color: APP, deriveId: (r: any) => (r.poId && r.itemId ? lineKey(r.poId, r.itemId, r.brand) : ''),
     cols: [
-      c('poNo', 'PO No'), c('itemName', 'Item'), c('qty', 'Quantity', 'num'), c('price', 'Price', 'num'),
+      c('poNo', 'PO No'), c('itemName', 'Item'), c('brand', 'Brand'), c('qty', 'Quantity', 'num'), c('price', 'Price', 'num'),
       c('queryNote', 'Price Query to Admin'), c('queryStatus', 'Query Status'), c('queryBy', 'Query Raised By'),
       c('poId', 'PO Key'), c('itemId', 'Item ID'), c('id', 'Key (auto)'),
     ],
@@ -111,7 +113,7 @@ export const TABLES = {
   stock: {
     sheet: 'Stock', id: 'id', kind: 'data', color: APP,
     cols: [
-      c('date', 'Date', 'date'), c('itemName', 'Item'), c('type', 'Type (IN / OUT / ADJUST)'), c('qty', 'Quantity', 'num'),
+      c('date', 'Date', 'date'), c('itemName', 'Item'), c('brand', 'Brand'), c('type', 'Type (IN / OUT / ADJUST)'), c('qty', 'Quantity', 'num'),
       c('toDept', 'Issued To (Dept / Purpose)'), c('note', 'Note'), c('grnNo', 'GRN No'), c('price', 'Price', 'num'), c('taxRate', 'Tax %', 'num'),
       c('by', 'By'), c('itemId', 'Item ID'), c('receiptId', 'Receipt Key'), c('id', 'Key'),
     ],

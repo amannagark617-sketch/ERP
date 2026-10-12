@@ -4,7 +4,7 @@ export type Role = string;
 interface Sys { _v?: number; _at?: string; _by?: string }
 
 export interface Item extends Sys { id: string; name: string; unit: string; category: string; minStock: number; active: boolean }
-export interface VendorItem extends Sys { itemId: string; price: number }
+export interface VendorItem extends Sys { itemId: string; brand: string; price: number }
 export interface Vendor extends Sys {
   id: string;
   name: string;
@@ -32,7 +32,7 @@ export interface Vendor extends Sys {
 export type PoStatus = string;
 export type AdvanceStatus = 'Not Required' | 'Requested' | 'Advance Paid' | 'Fully Paid';
 
-export interface PoLine extends Sys { itemId: string; qty: number; price: number; queryNote?: string; queryStatus?: '' | 'Open' | 'Resolved'; queryBy?: string }
+export interface PoLine extends Sys { itemId: string; brand: string; qty: number; price: number; queryNote?: string; queryStatus?: '' | 'Open' | 'Resolved'; queryBy?: string }
 export interface PurchaseOrder extends Sys {
   id: string;
   poNo: string;
@@ -56,7 +56,7 @@ export interface PurchaseOrder extends Sys {
 }
 
 /** Items received on a receipt are rows of the Stock tab (type IN). */
-export interface ReceiptLine extends Sys { itemId: string; qty: number; price: number; taxRate: number }
+export interface ReceiptLine extends Sys { itemId: string; brand: string; qty: number; price: number; taxRate: number }
 export interface Receipt extends Sys {
   id: string;
   grnNo: string;
@@ -96,6 +96,7 @@ export interface StockMove extends Sys {
   id: string;
   date: string;
   itemId: string;
+  brand: string;
   type: 'OUT' | 'ADJUST';
   qty: number; // OUT: positive quantity issued. ADJUST: signed correction
   toDept: string;

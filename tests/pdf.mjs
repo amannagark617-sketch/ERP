@@ -35,7 +35,7 @@ const base = {
   company, standardTerms: std, draft: false,
   po: { poNo: 'PO-0002', date: '2026-08-25', expectedDate: '2026-09-12', terms: '30 days credit. 50% advance. Delivery at factory gate, unloading by supplier.', advanceRequired: true, advanceAmount: 100000, paymentTerms: '30 days from invoice date', preparedBy: 'Navneet', department: 'Purchase' },
   vendor: { name: 'Sharma Mechanisms Pvt Ltd', contact: 'Rakesh Sharma', email: 'v1@example.com', phone: '9198000001', address: 'Industrial Area, Plot 1, Delhi, Delhi', gstin: '07AAAAA0001A1Z5', pan: 'AAAAA0001A', msme: true, msmeType: 'Small', udyamNo: 'UDYAM-DL-01-0000001' },
-  lines: [{ name: 'Recliner mechanism (manual)', unit: 'pcs', qty: 200, price: 2400 }],
+  lines: [{ name: 'Recliner mechanism (manual)', brand: 'MotionPro', unit: 'pcs', qty: 200, price: 2400 }, { name: 'Packing carton', brand: '', unit: 'pcs', qty: 500, price: 95 }],
   approvals: [{ by: 'Demo Factory Head', date: '2026-08-26' }],
 };
 const long = {
@@ -43,7 +43,7 @@ const long = {
   po: { ...base.po, poNo: 'PO-0110', terms: 'Part deliveries allowed. '.repeat(14) },
   approvals: [{ by: 'Demo Factory Head', date: '2026-08-26' }, { by: 'Demo CA', date: '2026-08-27' }],
   vendor: { ...base.vendor, name: 'Bharat Foam Industries & Allied Products Private Limited', address: 'Khasra No. 114/2/1, Industrial Area Phase 2, Near Old Toll Plaza, GT Road, Panipat, Haryana 132103', msme: false, udyamNo: '' },
-  lines: Array.from({ length: 34 }, (_, i) => ({ name: `Item number ${i + 1} - high density foam sheet 40D with flame-retardant treatment ${i % 3 ? '' : '(special grade, 2000 x 1000 x 50 mm)'}`, unit: i % 2 ? 'sheet' : 'pcs', qty: 25 * (i + 1), price: 1790.5 })),
+  lines: Array.from({ length: 34 }, (_, i) => ({ brand: i % 4 === 0 ? '' : ['Duraflex', 'ComfortPlus', 'SoftRest'][i % 3], name: `Item number ${i + 1} - high density foam sheet 40D with flame-retardant treatment ${i % 3 ? '' : '(special grade, 2000 x 1000 x 50 mm)'}`, unit: i % 2 ? 'sheet' : 'pcs', qty: 25 * (i + 1), price: 1790.5 })),
 };
 for (const [name, doc] of [['po-short', base], ['po-long', long]]) {
   const pdf = M.buildPoPdf(doc, assets);
@@ -55,7 +55,7 @@ for (const [name, doc] of [['po-short', base], ['po-long', long]]) {
   assert.ok(!/CIN\b/.test(text) && !/Subhav|Dewas|lnsindia|23AAFC/.test(text), 'no company letterhead details, no other company\'s details');
   const pages = (execFileSync('pdfinfo', [join(out, name + '.pdf')], { encoding: 'utf8' }).match(/Pages:\s+(\d+)/) || [])[1];
   console.log(name, 'OK', pdf.length, 'bytes,', pages, 'page(s)');
-  if (name === 'po-short') { assert.equal(pages, '1'); assert.ok(text.includes('Rupees Four Lakh Eighty Thousand Only')); assert.ok(!text.includes('DRAFT')); }
+  if (name === 'po-short') { assert.equal(pages, '1'); assert.ok(text.includes('MotionPro') && text.includes('Brand'.toUpperCase().slice(0,0) + 'Brand'), 'brand column printed'); assert.ok(text.includes('Rupees Five Lakh Twenty Seven Thousand Five Hundred Only')); assert.ok(!text.includes('DRAFT')); }
   else { assert.ok(Number(pages) >= 2); assert.ok(text.includes('Item number 34')); }
 }
 console.log('PDF tests passed. Output in', out);

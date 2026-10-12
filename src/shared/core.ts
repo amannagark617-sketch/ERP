@@ -6,6 +6,7 @@ import { DATA_TABLES, TABLES, TableKey, allCols, def, fromSheet, toSheet } from 
 import { sha256 } from './sha256';
 import { configSeed } from './seed';
 import { approversOf, routeFor } from './approval';
+import { lineKey, normBrand, sameBrand, stockKey } from './keys';
 import { SAMPLE_USER_PREFIX, sampleData, sampleUsers } from './sample';
 
 export interface Host {
@@ -167,14 +168,14 @@ const signed = (r: any) => (r.type === 'IN' ? r.qty : r.type === 'OUT' ? -r.qty 
 
 function balances(db: Db): Record<string, number> {
   const b: Record<string, number> = {};
-  db.rows('stock').forEach(r => { if (r.itemId) b[r.itemId] = r2((b[r.itemId] || 0) + signed(r)); });
+  db.rows('stock').forEach(r => { if (r.itemId) { const k = stockKey(r.itemId, r.brand); b[k] = r2((b[k] || 0) + signed(r)); } });
   return b;
 }
 
 /** Quantity of an item already received against a PO. */
-function receivedQty(db: Db, poId: string, itemId: string): number {
+function receivedQty(db: Db, poId: string, itemId: string, brand?: string): number {
   const ids = new Set(db.rows('receipts').filter(r => r.poId === poId).map(r => r.id));
-  return db.rows('stock').filter(s => s.type === 'IN' && s.itemId === itemId && ids.has(s.receiptId)).reduce((a, s) => a + s.qty, 0);
+  return db.rows('stock').filter(s => s.type === 'IN' && s.itemId === itemId && sameBrand(s.brand, brand) && ids.has(s.receiptId)).reduce((a, s) => a + s.qty, 0);
 }
 
 // ---------------------------------------------------------------- reads
@@ -203,7 +204,7 @@ function repairHandTypedRows(host: Host, db: Db) {
     const v = vendors.find(x => x.id === p.vendorId), i = items.find(x => x.id === p.itemId);
     if (v && p.vendorName !== v.name) { p.vendorName = v.name; changed = true; }
     if (i && p.itemName !== i.name) { p.itemName = i.name; changed = true; }
-    const id = p.vendorId && p.itemId ? `${p.vendorId}:${p.itemId}` : '';
+    const id = p.vendorId && p.itemId ? lineKey(p.vendorId, p.itemId, p.brand) : '';
     if (id && p.id !== id) { p.id = id; changed = true; }
     if (changed) { stamp(p); db.touch('prices', p); }
   }
@@ -229,14 +230,14 @@ function bootstrap(host: Host, db: Db, user: User, all: boolean) {
   const inQty = new Map<string, number>();
   stock.forEach(x => {
     const po = x.type === 'IN' ? rcptPO.get(x.receiptId) : '';
-    if (po) inQty.set(po + ':' + x.itemId, (inQty.get(po + ':' + x.itemId) || 0) + x.qty);
+    if (po) inQty.set(lineKey(po, x.itemId, x.brand), (inQty.get(lineKey(po, x.itemId, x.brand)) || 0) + x.qty);
   });
   const paid = new Map<string, number>();
   payments.forEach(p => { if (p.receiptId) paid.set(p.receiptId, (paid.get(p.receiptId) || 0) + p.amount); });
   const settledReceipt = (r: any) => r.accepted && (paid.get(r.id) || 0) >= r.payable - 0.01;
   const settledPO = (po: any) => {
     const ls = linesByPO.get(po.id) || [];
-    return po.status === 'Sent to Vendor' && ls.length > 0 && ls.every(l => (inQty.get(po.id + ':' + l.itemId) || 0) >= l.qty)
+    return po.status === 'Sent to Vendor' && ls.length > 0 && ls.every(l => (inQty.get(lineKey(po.id, l.itemId, l.brand)) || 0) >= l.qty)
       && (receiptsByPO.get(po.id) || []).every(settledReceipt);
   };
   const poIn = new Set(pos.filter(p => all || p.date >= cutoff || !settledPO(p)).map(p => p.id));
@@ -244,7 +245,7 @@ function bootstrap(host: Host, db: Db, user: User, all: boolean) {
   const stockOut = stock.filter(x => (x.type === 'IN' ? rcIn.has(x.receiptId) : all || x.date >= cutoff));
   const full = balances(db);
   const shown: Record<string, number> = {};
-  stockOut.forEach(x => { shown[x.itemId] = r2((shown[x.itemId] || 0) + signed(x)); });
+  stockOut.forEach(x => { const k = stockKey(x.itemId, x.brand); shown[k] = r2((shown[k] || 0) + signed(x)); });
   const stockBase: Record<string, number> = {};
   Object.keys(full).forEach(k => { stockBase[k] = r2(full[k] - (shown[k] || 0)); });
 
@@ -284,6 +285,7 @@ function sanitize(k: TableKey, row: any): any {
     else if (col.type === 'bool') out[col.key] = v === true || v === 'Yes';
     else {
       let s = v == null ? '' : String(v).slice(0, 2000);
+      if (col.key === 'brand') s = normBrand(s).slice(0, 60);
       if (/^[=+@]/.test(s)) s = ' ' + s;
       out[col.key] = s;
     }
@@ -356,11 +358,11 @@ function guards(action: string, user: User, ops: Op[], db: Db) {
   }
   if (action === 'po.save') {
     for (const l of v.ups('poLines')) {
-      if (l.id !== `${l.poId}:${l.itemId}`) bad('Invalid PO line');
+      if (l.id !== lineKey(l.poId, l.itemId, l.brand)) bad('Invalid PO line');
       const cur = db.find('poLines', l.id);
-      if (cur) { if (cur.price !== l.price || cur.itemId !== l.itemId) bad('PO price cannot be changed. Ask the Admin to update the vendor price.'); continue; }
+      if (cur) { if (cur.price !== l.price || cur.itemId !== l.itemId || !sameBrand(cur.brand, l.brand)) bad('PO price cannot be changed. Ask the Admin to update the vendor price.'); continue; }
       const po = v.get('pos', l.poId);
-      const pr = po && db.find('prices', `${po.vendorId}:${l.itemId}`);
+      const pr = po && db.find('prices', lineKey(po.vendorId, l.itemId, l.brand));
       if (!pr || pr.price !== l.price) bad('PO price must match the vendor price list');
       if (!(l.qty > 0)) bad('Quantity must be more than zero');
     }
@@ -386,10 +388,10 @@ function guards(action: string, user: User, ops: Op[], db: Db) {
     if (!ins.length) bad('Select the items received', 'ERROR');
     let sub = 0, tax = 0;
     for (const s of ins) {
-      const pl = v.get('poLines', `${po.id}:${s.itemId}`);
-      if (s.type !== 'IN' || s.receiptId !== r.id || s.id !== `${r.id}:${s.itemId}` || !pl) bad('Invalid stock-in row');
+      const pl = v.get('poLines', lineKey(po.id, s.itemId, s.brand));
+      if (s.type !== 'IN' || s.receiptId !== r.id || s.id !== lineKey(r.id, s.itemId, s.brand) || !pl) bad('Invalid stock-in row (item or brand is not on the PO)');
       if (pl.price !== s.price) bad('Receipt price must equal the PO price');
-      if (!(s.qty > 0) || s.qty > pl.qty - receivedQty(db, po.id, s.itemId) + 1e-9) bad('Received quantity is more than the pending PO quantity', 'ERROR');
+      if (!(s.qty > 0) || s.qty > pl.qty - receivedQty(db, po.id, s.itemId, s.brand) + 1e-9) bad('Received quantity is more than the pending PO quantity', 'ERROR');
       sub += s.qty * s.price; tax += (s.qty * s.price * s.taxRate) / 100;
     }
     const tol = Number(settingsOf(db).InvoiceTolerance || 1);
@@ -400,7 +402,7 @@ function guards(action: string, user: User, ops: Op[], db: Db) {
     if (Math.abs(r.advanceAdjusted - adj) > 0.01 || Math.abs(r.payable - (r.grandTotal - r.advanceAdjusted)) > 0.01) bad('Advance adjustment is wrong');
     for (const l of v.ups('poLines')) { // quantity may change when the invoice does not match; nothing else may
       const cur = db.find('poLines', l.id);
-      if (!cur || cur.poId !== po.id || !same(cur, l, ['price', 'itemId', 'queryNote', 'queryStatus'])) bad('Only the PO quantity may change here');
+      if (!cur || cur.poId !== po.id || !same(cur, l, ['price', 'itemId', 'brand', 'queryNote', 'queryStatus'])) bad('Only the PO quantity may change here');
     }
   }
   if (action === 'invoice.accept') {
@@ -431,7 +433,7 @@ function guards(action: string, user: User, ops: Op[], db: Db) {
   if (action === 'query.raise') {
     for (const l of v.ups('poLines')) {
       const cur = db.find('poLines', l.id);
-      if (!cur || !same(cur, l, ['qty', 'price', 'itemId', 'poId']) || l.queryStatus !== 'Open' || !l.queryNote) bad('Invalid price query', 'ERROR');
+      if (!cur || !same(cur, l, ['qty', 'price', 'itemId', 'brand', 'poId']) || l.queryStatus !== 'Open' || !l.queryNote) bad('Invalid price query', 'ERROR');
     }
   }
 
@@ -445,8 +447,9 @@ function guards(action: string, user: User, ops: Op[], db: Db) {
       if (!s.date) bad('Enter the date', 'ERROR');
       if (action === 'stock.issue') {
         if (s.type !== 'OUT' || !(s.qty > 0) || !s.toDept) bad('Enter quantity and who the stock is issued to', 'ERROR');
-        out[s.itemId] = (out[s.itemId] || 0) + s.qty;
-        if (out[s.itemId] > (bal[s.itemId] || 0) + 1e-9) bad(`Only ${bal[s.itemId] || 0} ${item.unit} of ${item.name} in stock`, 'ERROR');
+        const k = stockKey(s.itemId, s.brand);
+        out[k] = (out[k] || 0) + s.qty;
+        if (out[k] > (bal[k] || 0) + 1e-9) bad(`Only ${bal[k] || 0} ${item.unit} of ${item.name}${normBrand(s.brand) ? ' (' + normBrand(s.brand) + ')' : ''} in stock`, 'ERROR');
       } else if (s.type !== 'ADJUST' || !s.qty || !s.note) bad('Adjustments need a quantity (+/-) and a reason', 'ERROR');
     }
   }
@@ -455,12 +458,12 @@ function guards(action: string, user: User, ops: Op[], db: Db) {
   if (action === 'master.manage') {
     for (const l of v.ups('poLines')) { // the Admin may only close a price query
       const cur = db.find('poLines', l.id);
-      if (!cur || !same(cur, l, ['qty', 'price', 'itemId', 'poId', 'queryNote', 'queryBy']) || l.queryStatus !== 'Resolved') bad('Only the price query can be closed here');
+      if (!cur || !same(cur, l, ['qty', 'price', 'itemId', 'brand', 'poId', 'queryNote', 'queryBy']) || l.queryStatus !== 'Resolved') bad('Only the price query can be closed here');
     }
     for (const p of v.ups('prices')) {
       if (!db.find('vendors', p.vendorId) && !v.get('vendors', p.vendorId)) bad('Unknown vendor in price list', 'ERROR');
       if (!db.find('items', p.itemId) && !v.get('items', p.itemId)) bad('Unknown item in price list', 'ERROR');
-      if (p.id !== `${p.vendorId}:${p.itemId}` || p.price < 0) bad('Invalid price row', 'ERROR');
+      if (p.id !== lineKey(p.vendorId, p.itemId, p.brand) || p.price < 0) bad('Invalid price row', 'ERROR');
     }
   }
 }
@@ -728,7 +731,7 @@ export function loadSample(host: Host, today: string): string {
   for (const k of Object.keys(data) as TableKey[]) for (const r of data[k]) db.put(k, r);
   for (const u of sampleUsers()) if (!db.rows('users').some(x => lc(x.loginId) === lc(u.loginId))) db.put('users', u);
   host.bumpStamp();
-  return 'Sample data loaded: 7 vendors, 12 items, 18 vendor prices, 10 POs, receipts, payments, stock movements. '
+  return 'Sample data loaded: 7 vendors, 12 items, 19 vendor prices, 10 POs, receipts, payments, stock movements. '
     + 'Log in with demo.purchase / demo.factory / demo.accounts / demo.store (password Demo@1234), and use your own admin login for the Admin parts. '
     + 'Remove everything with clearAllDataBeforeGoingLive() before real use.';
 }

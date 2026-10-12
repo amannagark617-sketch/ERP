@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { actions, fetchHistory, uploadFile, useAuth, useStore } from '../store';
 import { downloadPdf, makePoPdf } from '../pdf/makePo';
 import {
-  advancePaid, displayStatus, invoicesOf, isDelayed, itemName, outstanding, paidTotal, pendingQty, poValue,
+  advancePaid, displayStatus, invoicesOf, isDelayed, itemName, lineName, outstanding, paidTotal, pendingQty, poValue,
   receiptBalance, receiptPaid, receivedQty, receivedValue, vendorOf,
 } from '../domain';
 import { Badge, Card, Empty, FileLink, Link, PayForm, Stat, go, run } from '../ui';
@@ -25,7 +25,7 @@ export default function PoDetail({ id }: { id: string }) {
   const sent = po.status === 'Sent to Vendor';
   const canApprove = can('po.approve') && po.status === 'Pending ' + role;
   const poText = `Purchase Order ${po.poNo} – Little Nap Recliners\n` +
-    po.lines.map(l => `${itemName(s, l.itemId)}: ${l.qty} x ${l.price}`).join('\n') + `\nTotal: ${poValue(po)}\nExpected delivery: ${po.expectedDate}\nTerms: ${po.terms}`;
+    po.lines.map(l => `${lineName(s, l)}: ${l.qty} x ${l.price}`).join('\n') + `\nTotal: ${poValue(po)}\nExpected delivery: ${po.expectedDate}\nTerms: ${po.terms}`;
   const queries = po.lines.filter(l => l.queryNote);
   /** Save the exact PDF that goes out (best effort), then record the PO as sent. */
   const markSent = async (via: 'Email' | 'WhatsApp') => {
@@ -38,7 +38,7 @@ export default function PoDetail({ id }: { id: string }) {
     await run(() => actions.sendToVendor(po.id, via, fileId));
     setPdfBusy(false);
   };
-  const pendingTotal = po.lines.reduce((a, l) => a + pendingQty(s, po, l.itemId), 0);
+  const pendingTotal = po.lines.reduce((a, l) => a + pendingQty(s, po, l), 0);
 
   return (
     <>
@@ -66,11 +66,11 @@ export default function PoDetail({ id }: { id: string }) {
 
       <Card title="Items">
         <div className="tablewrap"><table>
-          <thead><tr><th>Item</th><th className="r">Price</th><th className="r">PO qty</th><th className="r">Received</th><th className="r">Pending</th><th className="r">Amount</th></tr></thead>
+          <thead><tr><th>Item</th><th>Brand</th><th className="r">Price</th><th className="r">PO qty</th><th className="r">Received</th><th className="r">Pending</th><th className="r">Amount</th></tr></thead>
           <tbody>{po.lines.map(l => (
-            <tr key={l.itemId}><td>{itemName(s, l.itemId)}</td><td className="r">{inr(l.price)}</td><td className="r">{l.qty}</td>
-              <td className="r">{receivedQty(s, po.id, l.itemId)}</td><td className="r">{pendingQty(s, po, l.itemId)}</td><td className="r">{inr(l.qty * l.price)}</td></tr>
-          ))}<tr className="tot"><td colSpan={5} className="r">PO value (before tax)</td><td className="r">{inr(poValue(po))}</td></tr></tbody>
+            <tr key={l.itemId + '|' + l.brand}><td>{itemName(s, l.itemId)}</td><td>{l.brand || <span className="mut">—</span>}</td><td className="r">{inr(l.price)}</td><td className="r">{l.qty}</td>
+              <td className="r">{receivedQty(s, po.id, l.itemId, l.brand)}</td><td className="r">{pendingQty(s, po, l)}</td><td className="r">{inr(l.qty * l.price)}</td></tr>
+          ))}<tr className="tot"><td colSpan={6} className="r">PO value (before tax)</td><td className="r">{inr(poValue(po))}</td></tr></tbody>
         </table></div>
       </Card>
 
@@ -145,7 +145,7 @@ export default function PoDetail({ id }: { id: string }) {
 
       {queries.length > 0 && (
         <Card title="Price queries to the Admin">
-          <table><tbody>{queries.map(l => <tr key={l.itemId}><td>{itemName(s, l.itemId)}</td><td>{l.queryNote}</td><td className="mut">{l.queryBy}</td><td><Badge>{l.queryStatus === 'Resolved' ? 'Resolved' : 'Open'}</Badge></td></tr>)}</tbody></table>
+          <table><tbody>{queries.map(l => <tr key={l.itemId + '|' + l.brand}><td>{lineName(s, l)}</td><td>{l.queryNote}</td><td className="mut">{l.queryBy}</td><td><Badge>{l.queryStatus === 'Resolved' ? 'Resolved' : 'Open'}</Badge></td></tr>)}</tbody></table>
         </Card>
       )}
 

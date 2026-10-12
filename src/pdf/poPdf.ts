@@ -6,7 +6,7 @@ export interface PoDoc {
   company: { brandName: string; signatory: string };
   po: { poNo: string; date: string; expectedDate: string; terms: string; advanceRequired: boolean; advanceAmount: number; paymentTerms: string; preparedBy: string; department: string };
   vendor: { name: string; contact: string; email: string; phone: string; address: string; gstin: string; pan: string; msme: boolean; msmeType: string; udyamNo: string };
-  lines: { name: string; unit: string; qty: number; price: number }[];
+  lines: { name: string; brand: string; unit: string; qty: number; price: number }[];
   approvals: { by: string; date: string }[];
   standardTerms: string[];
   /** Not yet approved: print a DRAFT watermark so a draft can never be mistaken for an issued PO. */
@@ -24,7 +24,7 @@ const RED: RGB = [215, 25, 32];
 const WHITE: RGB = [255, 255, 255];
 
 const W = 210, H = 297, MX = 16, CW = W - 2 * MX;
-const BOTTOM = 268; // content must stop above the footer
+const BOTTOM = 272; // content must stop above the footer
 
 function b64(u8: Uint8Array): string {
   let s = '';
@@ -110,25 +110,34 @@ export function buildPoPdf(d: PoDoc, a: PdfAssets): Uint8Array {
   y += boxH + 8;
 
   // ---------------------------------------------------------------- items
+  // The Brand column appears only when at least one line has a brand
+  const hasBrand = d.lines.some(l => l.brand);
+  const nc = hasBrand ? 7 : 6;
+  const numCols = hasBrand ? [4, 5, 6] : [3, 4, 5];
   autoTable(doc, {
     startY: y,
     margin: { left: MX, right: MX, top: 28, bottom: H - BOTTOM },
     theme: 'plain',
-    head: [['#', 'Item description', 'Unit', 'Qty', 'Rate (₹)', 'Amount (₹)']],
-    body: d.lines.map((l, i) => [String(i + 1), l.name, l.unit, qtyFmt(l.qty), money(l.price), money(l.qty * l.price)]),
-    foot: [[{ content: 'Order value (before tax)', colSpan: 5, styles: { halign: 'right' } }, `₹ ${money(total)}`]],
+    head: [hasBrand ? ['#', 'Item description', 'Brand', 'Unit', 'Qty', 'Rate (₹)', 'Amount (₹)'] : ['#', 'Item description', 'Unit', 'Qty', 'Rate (₹)', 'Amount (₹)']],
+    body: d.lines.map((l, i) => (hasBrand
+      ? [String(i + 1), l.name, l.brand || '—', l.unit, qtyFmt(l.qty), money(l.price), money(l.qty * l.price)]
+      : [String(i + 1), l.name, l.unit, qtyFmt(l.qty), money(l.price), money(l.qty * l.price)])),
+    foot: [[{ content: 'Order value (before tax)', colSpan: nc - 1, styles: { halign: 'right' } }, `₹ ${money(total)}`]],
     showFoot: 'lastPage',
     styles: { font: 'Inter', fontSize: 8.9, textColor: INK, cellPadding: { top: 2.9, bottom: 2.9, left: 2.4, right: 2.4 }, lineColor: BORDER, lineWidth: { top: 0, right: 0, bottom: 0.2, left: 0 }, valign: 'middle' },
     headStyles: { fillColor: INK, textColor: WHITE, fontStyle: 'bold', fontSize: 7.4, lineWidth: 0, cellPadding: { top: 3.2, bottom: 3.2, left: 2.4, right: 2.4 } },
     footStyles: { fillColor: RAISED, textColor: INK, fontStyle: 'bold', fontSize: 10, lineColor: INK, lineWidth: { top: 0.4, right: 0, bottom: 0, left: 0 }, cellPadding: { top: 3.4, bottom: 3.4, left: 2.4, right: 2.4 } },
     alternateRowStyles: { fillColor: [250, 250, 251] },
-    columnStyles: {
+    columnStyles: hasBrand ? {
+      0: { cellWidth: 8, textColor: MUTED }, 1: { cellWidth: 'auto', fontStyle: 'bold' }, 2: { cellWidth: 27, fontStyle: 'bold' }, 3: { cellWidth: 13, textColor: MUTED },
+      4: { cellWidth: 19, halign: 'right' }, 5: { cellWidth: 25, halign: 'right' }, 6: { cellWidth: 30, halign: 'right', fontStyle: 'bold' },
+    } : {
       0: { cellWidth: 9, textColor: MUTED }, 1: { cellWidth: 'auto', fontStyle: 'bold' }, 2: { cellWidth: 15, textColor: MUTED },
       3: { cellWidth: 21, halign: 'right' }, 4: { cellWidth: 28, halign: 'right' }, 5: { cellWidth: 33, halign: 'right', fontStyle: 'bold' },
     },
     didParseCell: (h) => {
-      if (h.section === 'head' && [3, 4, 5].includes(h.column.index)) h.cell.styles.halign = 'right';
-      if (h.section === 'foot' && h.column.index === 5) h.cell.styles.halign = 'right';
+      if (h.section === 'head' && numCols.includes(h.column.index)) h.cell.styles.halign = 'right';
+      if (h.section === 'foot' && h.column.index === nc - 1) h.cell.styles.halign = 'right';
     },
     didDrawPage: (h) => { if (h.pageNumber > 1) compactHeader(); },
   });
@@ -187,8 +196,8 @@ export function buildPoPdf(d: PoDoc, a: PdfAssets): Uint8Array {
   }
 
   // ---------------------------------------------------------------- prepared / approved / signature (kept together)
-  ensure(40);
-  y += 6;
+  ensure(35);
+  y += 5;
   const colW = (CW - 12) / 3;
   const sy = y;
   const col = (i: number) => MX + i * (colW + 6);

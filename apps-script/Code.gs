@@ -247,6 +247,15 @@ var Core = (() => {
     setup: () => setup
   });
 
+  // src/shared/keys.ts
+  var normBrand = (b) => String(b != null ? b : "").replace(/[:|]/g, " ").replace(/\s+/g, " ").trim();
+  var lineKey = (parent, itemId, brand) => {
+    const b = normBrand(brand).toLowerCase();
+    return parent + ":" + itemId + (b ? ":" + b : "");
+  };
+  var stockKey = (itemId, brand) => itemId + "|" + normBrand(brand).toLowerCase();
+  var sameBrand = (a, b) => normBrand(a).toLowerCase() === normBrand(b).toLowerCase();
+
   // src/shared/schema.ts
   var c = (key, header, type = "text", dflt = false) => ({ key, header, type, dflt });
   var SYSTEM_COLS = [c("_v", "Version", "num"), c("_at", "Updated At"), c("_by", "Updated By")];
@@ -345,11 +354,12 @@ var Core = (() => {
       id: "id",
       kind: "data",
       color: MASTER,
-      deriveId: (r) => r.vendorId && r.itemId ? `${r.vendorId}:${r.itemId}` : "",
+      deriveId: (r) => r.vendorId && r.itemId ? lineKey(r.vendorId, r.itemId, r.brand) : "",
       cols: [
         c("id", "Key (auto)"),
         c("vendorName", "Vendor Name"),
         c("itemName", "Item Name"),
+        c("brand", "Brand"),
         c("price", "Agreed Price (Rs)", "num"),
         c("vendorId", "Vendor ID"),
         c("itemId", "Item ID")
@@ -387,10 +397,11 @@ var Core = (() => {
       id: "id",
       kind: "data",
       color: APP,
-      deriveId: (r) => r.poId && r.itemId ? `${r.poId}:${r.itemId}` : "",
+      deriveId: (r) => r.poId && r.itemId ? lineKey(r.poId, r.itemId, r.brand) : "",
       cols: [
         c("poNo", "PO No"),
         c("itemName", "Item"),
+        c("brand", "Brand"),
         c("qty", "Quantity", "num"),
         c("price", "Price", "num"),
         c("queryNote", "Price Query to Admin"),
@@ -455,6 +466,7 @@ var Core = (() => {
       cols: [
         c("date", "Date", "date"),
         c("itemName", "Item"),
+        c("brand", "Brand"),
         c("type", "Type (IN / OUT / ADJUST)"),
         c("qty", "Quantity", "num"),
         c("toDept", "Issued To (Dept / Purpose)"),
@@ -713,33 +725,34 @@ var Core = (() => {
     const vName = Object.fromEntries(vendorSpec.map((v) => [v[0], v[1]]));
     const vendorOf = Object.fromEntries(vendorSpec.map((v) => [v[0], { msme: v[5], terms: v[7] }]));
     const priceSpec = [
-      ["V1", "I1", 2400],
-      ["V1", "I2", 6800],
-      ["V2", "I3", 1850],
-      ["V4", "I3", 1790],
-      ["V6", "I3", 1880],
-      ["V2", "I4", 420],
-      ["V5", "I4", 395],
-      ["V3", "I5", 3200],
-      ["V3", "I6", 95],
-      ["V6", "I6", 102],
-      ["V6", "I7", 650],
-      ["V4", "I8", 310],
-      ["V2", "I8", 330],
-      ["V5", "I9", 520],
-      ["V2", "I9", 540],
-      ["V6", "I10", 180],
-      ["V4", "I11", 2100],
-      ["V6", "I11", 2250]
+      ["V1", "I1", "MotionPro", 2400],
+      ["V1", "I2", "MotionPro", 6800],
+      ["V2", "I3", "ComfortPlus", 1850],
+      ["V2", "I3", "SoftRest", 1925],
+      ["V4", "I3", "Duraflex", 1790],
+      ["V6", "I3", "SoftRest", 1880],
+      ["V2", "I4", "Luxe", 420],
+      ["V5", "I4", "Royal", 395],
+      ["V3", "I5", "", 3200],
+      ["V3", "I6", "", 95],
+      ["V6", "I6", "", 102],
+      ["V6", "I7", "SteelCo", 650],
+      ["V4", "I8", "Duraflex", 310],
+      ["V2", "I8", "ComfortPlus", 330],
+      ["V5", "I9", "Royal", 520],
+      ["V2", "I9", "Luxe", 540],
+      ["V6", "I10", "", 180],
+      ["V4", "I11", "BondFast", 2100],
+      ["V6", "I11", "BondFast", 2250]
     ];
-    const price = (v, i) => priceSpec.find((p) => p[0] === v && p[1] === i)[2];
+    const price = (v, i, brand) => priceSpec.find((p) => p[0] === v && p[1] === i && p[2] === brand)[3];
     const P = "Demo Purchase", F = "Demo Factory Head", A = "Demo Accounts", S = "Demo Store", H = "Administrator";
     const pos = [
       {
         n: 1,
         vendor: "V6",
         date: -60,
-        lines: [["I6", 400]],
+        lines: [["I6", "", 400]],
         status: "Sent to Vendor",
         route: ["Factory Head"],
         step: 1,
@@ -754,7 +767,7 @@ var Core = (() => {
         n: 2,
         vendor: "V1",
         date: -48,
-        lines: [["I1", 200]],
+        lines: [["I1", "MotionPro", 200]],
         status: "Sent to Vendor",
         route: ["Factory Head"],
         step: 1,
@@ -769,7 +782,7 @@ var Core = (() => {
         n: 3,
         vendor: "V2",
         date: -28,
-        lines: [["I3", 300], ["I4", 800]],
+        lines: [["I3", "ComfortPlus", 300], ["I4", "Luxe", 800]],
         status: "Sent to Vendor",
         route: ["Factory Head"],
         step: 1,
@@ -784,7 +797,7 @@ var Core = (() => {
         n: 4,
         vendor: "V3",
         date: -14,
-        lines: [["I5", 100], ["I6", 500]],
+        lines: [["I5", "", 100], ["I6", "", 500]],
         status: "Sent to Vendor",
         route: ["Factory Head"],
         step: 1,
@@ -799,7 +812,7 @@ var Core = (() => {
         n: 5,
         vendor: "V3",
         date: -7,
-        lines: [["I6", 600]],
+        lines: [["I6", "", 600]],
         status: "Sent to Vendor",
         route: ["Factory Head"],
         step: 1,
@@ -814,7 +827,7 @@ var Core = (() => {
         n: 6,
         vendor: "V2",
         date: -6,
-        lines: [["I8", 200]],
+        lines: [["I8", "ComfortPlus", 200]],
         status: "Rejected",
         route: ["Factory Head"],
         step: 0,
@@ -822,13 +835,13 @@ var Core = (() => {
         advStatus: "Not Required",
         expected: 10,
         terms: "",
-        events: [[-6, P, "Draft created and submitted for approval"], [-5, F, "Not approved \u2013 Bharat Foam is cheaper for headrests, please re-raise"]]
+        events: [[-6, P, "Draft created and submitted for approval"], [-5, F, "Not approved \u2013 Duraflex headrests from Bharat Foam are cheaper, please re-raise"]]
       },
       {
         n: 7,
         vendor: "V5",
         date: -4,
-        lines: [["I4", 1500], ["I9", 800]],
+        lines: [["I4", "Royal", 1500], ["I9", "Royal", 800]],
         status: "Pending Admin",
         route: ["Factory Head", "Admin"],
         step: 1,
@@ -842,7 +855,7 @@ var Core = (() => {
         n: 8,
         vendor: "V6",
         date: -2,
-        lines: [["I7", 100], ["I10", 50]],
+        lines: [["I7", "SteelCo", 100], ["I10", "", 50]],
         status: "Approved",
         route: ["Factory Head"],
         step: 1,
@@ -856,7 +869,7 @@ var Core = (() => {
         n: 9,
         vendor: "V4",
         date: -1,
-        lines: [["I3", 200], ["I11", 20]],
+        lines: [["I3", "Duraflex", 200], ["I11", "BondFast", 20]],
         status: "Pending Factory Head",
         route: ["Factory Head"],
         step: 0,
@@ -870,7 +883,7 @@ var Core = (() => {
         n: 10,
         vendor: "V1",
         date: 0,
-        lines: [["I2", 25]],
+        lines: [["I2", "MotionPro", 25]],
         status: "Draft",
         route: [],
         step: 0,
@@ -886,14 +899,15 @@ var Core = (() => {
     const logRows = [];
     let lg = 0;
     const poRows = pos.map((p) => {
-      p.lines.forEach(([item, qty]) => lineRows.push({
-        id: `po${p.n}:${item}`,
+      p.lines.forEach(([item, brand, qty]) => lineRows.push({
+        id: lineKey(`po${p.n}`, item, brand),
         poId: `po${p.n}`,
         poNo: poNo(p.n),
         itemId: item,
         itemName: iName[item],
+        brand,
         qty,
-        price: price(p.vendor, item),
+        price: price(p.vendor, item, brand),
         queryNote: p.n === 5 ? "Vendor invoice shows Rs 99 per carton, PO says Rs 95" : "",
         queryStatus: p.n === 5 ? "Open" : "",
         queryBy: p.n === 5 ? S : ""
@@ -921,16 +935,16 @@ var Core = (() => {
       };
     });
     const rcs = [
-      { id: "r1", po: 1, grn: 1, inv: "DH-221", date: -55, lines: [["I6", 400, 18]], advAdj: 0, accepted: -53 },
-      { id: "r2", po: 2, grn: 2, inv: "SM/114", date: -35, lines: [["I1", 120, 18]], advAdj: 1e5, accepted: -33 },
-      { id: "r3", po: 3, grn: 3, inv: "FF-778", date: -20, lines: [["I3", 300, 18], ["I4", 800, 18]], advAdj: 0, accepted: -18 },
-      { id: "r4", po: 4, grn: 4, inv: "KT-5502", date: -2, lines: [["I5", 60, 18]], advAdj: 0 }
+      { id: "r1", po: 1, grn: 1, inv: "DH-221", date: -55, lines: [["I6", "", 400, 18]], advAdj: 0, accepted: -53 },
+      { id: "r2", po: 2, grn: 2, inv: "SM/114", date: -35, lines: [["I1", "MotionPro", 120, 18]], advAdj: 1e5, accepted: -33 },
+      { id: "r3", po: 3, grn: 3, inv: "FF-778", date: -20, lines: [["I3", "ComfortPlus", 300, 18], ["I4", "Luxe", 800, 18]], advAdj: 0, accepted: -18 },
+      { id: "r4", po: 4, grn: 4, inv: "KT-5502", date: -2, lines: [["I5", "", 60, 18]], advAdj: 0 }
     ];
     const receiptRows = [], stockRows = [];
     const payable = {};
     for (const r of rcs) {
       const po = pos.find((p) => p.n === r.po);
-      const priced = r.lines.map(([item, qty, tax2]) => ({ item, qty, tax: tax2, price: price(po.vendor, item) }));
+      const priced = r.lines.map(([item, brand, qty, tax2]) => ({ item, brand, qty, tax: tax2, price: price(po.vendor, item, brand) }));
       const sub = r2(priced.reduce((a, l) => a + l.qty * l.price, 0));
       const tax = r2(priced.reduce((a, l) => a + l.qty * l.price * l.tax / 100, 0));
       const vi = vendorOf[po.vendor];
@@ -958,10 +972,11 @@ var Core = (() => {
         createdBy: S
       });
       priced.forEach((l) => stockRows.push({
-        id: `${r.id}:${l.item}`,
+        id: lineKey(r.id, l.item, l.brand),
         date: D(r.date),
         itemId: l.item,
         itemName: iName[l.item],
+        brand: l.brand,
         type: "IN",
         qty: l.qty,
         receiptId: r.id,
@@ -1016,29 +1031,30 @@ var Core = (() => {
       pay("pay4", "invoice", 3, "r3", 5e5, -8, "V2"),
       pay("pay5", "invoice", null, "ob2", 1e4, -3, "V2")
     ];
-    const mv = (id, d, item, type, qty, toDept, note, by) => ({ id, date: D(d), itemId: item, itemName: iName[item], type, qty, receiptId: "", grnNo: "", price: 0, taxRate: 0, toDept, note, by });
-    const opening60 = (id, item, qty) => mv(id, -62, item, "ADJUST", qty, "", "Opening stock", H);
+    const mv = (id, d, item, brand, type, qty, toDept, note, by) => ({ id, date: D(d), itemId: item, itemName: iName[item], brand, type, qty, receiptId: "", grnNo: "", price: 0, taxRate: 0, toDept, note, by });
+    const opening60 = (id, item, brand, qty) => mv(id, -62, item, brand, "ADJUST", qty, "", "Opening stock", H);
     stockRows.push(
-      opening60("os1", "I1", 30),
-      opening60("os2", "I2", 12),
-      opening60("os3", "I3", 40),
-      opening60("os4", "I4", 100),
-      opening60("os5", "I5", 25),
-      opening60("os6", "I6", 150),
-      opening60("os7", "I7", 60),
-      opening60("os8", "I8", 80),
-      opening60("os9", "I9", 200),
-      opening60("os10", "I10", 20),
-      opening60("os11", "I11", 5),
-      mv("o1", -15, "I1", "OUT", 60, "Production", "Batch 14", S),
-      mv("o2", -3, "I1", "OUT", 50, "Assembly", "", S),
-      mv("o3", -6, "I2", "OUT", 4, "Production", "Motorised model", S),
-      mv("o4", -10, "I3", "OUT", 120, "Production", "", S),
-      mv("o5", -9, "I3", "ADJUST", -5, "", "Damaged in handling", H),
-      mv("o6", -8, "I4", "OUT", 250, "Cutting", "Batch 14", S),
-      mv("o7", -1, "I5", "OUT", 30, "Assembly", "", S),
-      mv("o8", -5, "I6", "OUT", 200, "Packing", "", S),
-      mv("o9", -7, "I8", "OUT", 30, "Assembly", "", S)
+      opening60("os1", "I1", "MotionPro", 30),
+      opening60("os2", "I2", "MotionPro", 12),
+      opening60("os3", "I3", "ComfortPlus", 40),
+      opening60("os3b", "I3", "Duraflex", 30),
+      opening60("os4", "I4", "Luxe", 100),
+      opening60("os5", "I5", "", 25),
+      opening60("os6", "I6", "", 150),
+      opening60("os7", "I7", "SteelCo", 60),
+      opening60("os8", "I8", "Duraflex", 80),
+      opening60("os9", "I9", "Royal", 200),
+      opening60("os10", "I10", "", 20),
+      opening60("os11", "I11", "BondFast", 5),
+      mv("o1", -15, "I1", "MotionPro", "OUT", 60, "Production", "Batch 14", S),
+      mv("o2", -3, "I1", "MotionPro", "OUT", 50, "Assembly", "", S),
+      mv("o3", -6, "I2", "MotionPro", "OUT", 4, "Production", "Motorised model", S),
+      mv("o4", -10, "I3", "ComfortPlus", "OUT", 120, "Production", "", S),
+      mv("o5", -9, "I3", "ComfortPlus", "ADJUST", -5, "", "Damaged in handling", H),
+      mv("o6", -8, "I4", "Luxe", "OUT", 250, "Cutting", "Batch 14", S),
+      mv("o7", -1, "I5", "", "OUT", 30, "Assembly", "", S),
+      mv("o8", -5, "I6", "", "OUT", 200, "Packing", "", S),
+      mv("o9", -7, "I8", "Duraflex", "OUT", 30, "Assembly", "", S)
     );
     const sys = (rows) => rows.map((r) => ({ ...r, _v: 1, _at: iso(0), _by: "sample" }));
     return {
@@ -1063,7 +1079,7 @@ var Core = (() => {
         ifsc: "BANK0001234",
         active: v[10]
       }))),
-      prices: sys(priceSpec.map(([v, i, p]) => ({ id: `${v}:${i}`, vendorId: v, vendorName: vName[v], itemId: i, itemName: iName[i], price: p }))),
+      prices: sys(priceSpec.map(([v, i, brand, p]) => ({ id: lineKey(v, i, brand), vendorId: v, vendorName: vName[v], itemId: i, itemName: iName[i], brand, price: p }))),
       pos: sys(poRows),
       poLines: sys(lineRows),
       receipts: sys(receiptRows),
@@ -1210,13 +1226,16 @@ var Core = (() => {
   function balances(db) {
     const b = {};
     db.rows("stock").forEach((r) => {
-      if (r.itemId) b[r.itemId] = r22((b[r.itemId] || 0) + signed(r));
+      if (r.itemId) {
+        const k = stockKey(r.itemId, r.brand);
+        b[k] = r22((b[k] || 0) + signed(r));
+      }
     });
     return b;
   }
-  function receivedQty(db, poId, itemId) {
+  function receivedQty(db, poId, itemId, brand) {
     const ids = new Set(db.rows("receipts").filter((r) => r.poId === poId).map((r) => r.id));
-    return db.rows("stock").filter((s) => s.type === "IN" && s.itemId === itemId && ids.has(s.receiptId)).reduce((a, s) => a + s.qty, 0);
+    return db.rows("stock").filter((s) => s.type === "IN" && s.itemId === itemId && sameBrand(s.brand, brand) && ids.has(s.receiptId)).reduce((a, s) => a + s.qty, 0);
   }
   function monthsAgo(today, n) {
     const d = /* @__PURE__ */ new Date(today + "T00:00:00Z");
@@ -1266,7 +1285,7 @@ var Core = (() => {
         p.itemName = i.name;
         changed = true;
       }
-      const id = p.vendorId && p.itemId ? `${p.vendorId}:${p.itemId}` : "";
+      const id = p.vendorId && p.itemId ? lineKey(p.vendorId, p.itemId, p.brand) : "";
       if (id && p.id !== id) {
         p.id = id;
         changed = true;
@@ -1301,7 +1320,7 @@ var Core = (() => {
     const inQty = /* @__PURE__ */ new Map();
     stock.forEach((x) => {
       const po = x.type === "IN" ? rcptPO.get(x.receiptId) : "";
-      if (po) inQty.set(po + ":" + x.itemId, (inQty.get(po + ":" + x.itemId) || 0) + x.qty);
+      if (po) inQty.set(lineKey(po, x.itemId, x.brand), (inQty.get(lineKey(po, x.itemId, x.brand)) || 0) + x.qty);
     });
     const paid = /* @__PURE__ */ new Map();
     payments.forEach((p) => {
@@ -1310,7 +1329,7 @@ var Core = (() => {
     const settledReceipt = (r) => r.accepted && (paid.get(r.id) || 0) >= r.payable - 0.01;
     const settledPO = (po) => {
       const ls = linesByPO.get(po.id) || [];
-      return po.status === "Sent to Vendor" && ls.length > 0 && ls.every((l) => (inQty.get(po.id + ":" + l.itemId) || 0) >= l.qty) && (receiptsByPO.get(po.id) || []).every(settledReceipt);
+      return po.status === "Sent to Vendor" && ls.length > 0 && ls.every((l) => (inQty.get(lineKey(po.id, l.itemId, l.brand)) || 0) >= l.qty) && (receiptsByPO.get(po.id) || []).every(settledReceipt);
     };
     const poIn = new Set(pos.filter((p) => all || p.date >= cutoff || !settledPO(p)).map((p) => p.id));
     const rcIn = new Set(receipts.filter((r) => r.poId ? poIn.has(r.poId) : all || r.invoiceDate >= cutoff || !settledReceipt(r)).map((r) => r.id));
@@ -1318,7 +1337,8 @@ var Core = (() => {
     const full = balances(db);
     const shown = {};
     stockOut.forEach((x) => {
-      shown[x.itemId] = r22((shown[x.itemId] || 0) + signed(x));
+      const k = stockKey(x.itemId, x.brand);
+      shown[k] = r22((shown[k] || 0) + signed(x));
     });
     const stockBase = {};
     Object.keys(full).forEach((k) => {
@@ -1355,6 +1375,7 @@ var Core = (() => {
       else if (col.type === "bool") out[col.key] = v === true || v === "Yes";
       else {
         let s = v == null ? "" : String(v).slice(0, 2e3);
+        if (col.key === "brand") s = normBrand(s).slice(0, 60);
         if (/^[=+@]/.test(s)) s = " " + s;
         out[col.key] = s;
       }
@@ -1443,14 +1464,14 @@ var Core = (() => {
     }
     if (action === "po.save") {
       for (const l of v.ups("poLines")) {
-        if (l.id !== `${l.poId}:${l.itemId}`) bad("Invalid PO line");
+        if (l.id !== lineKey(l.poId, l.itemId, l.brand)) bad("Invalid PO line");
         const cur = db.find("poLines", l.id);
         if (cur) {
-          if (cur.price !== l.price || cur.itemId !== l.itemId) bad("PO price cannot be changed. Ask the Admin to update the vendor price.");
+          if (cur.price !== l.price || cur.itemId !== l.itemId || !sameBrand(cur.brand, l.brand)) bad("PO price cannot be changed. Ask the Admin to update the vendor price.");
           continue;
         }
         const po = v.get("pos", l.poId);
-        const pr = po && db.find("prices", `${po.vendorId}:${l.itemId}`);
+        const pr = po && db.find("prices", lineKey(po.vendorId, l.itemId, l.brand));
         if (!pr || pr.price !== l.price) bad("PO price must match the vendor price list");
         if (!(l.qty > 0)) bad("Quantity must be more than zero");
       }
@@ -1472,10 +1493,10 @@ var Core = (() => {
       if (!ins.length) bad("Select the items received", "ERROR");
       let sub = 0, tax = 0;
       for (const s of ins) {
-        const pl = v.get("poLines", `${po.id}:${s.itemId}`);
-        if (s.type !== "IN" || s.receiptId !== r.id || s.id !== `${r.id}:${s.itemId}` || !pl) bad("Invalid stock-in row");
+        const pl = v.get("poLines", lineKey(po.id, s.itemId, s.brand));
+        if (s.type !== "IN" || s.receiptId !== r.id || s.id !== lineKey(r.id, s.itemId, s.brand) || !pl) bad("Invalid stock-in row (item or brand is not on the PO)");
         if (pl.price !== s.price) bad("Receipt price must equal the PO price");
-        if (!(s.qty > 0) || s.qty > pl.qty - receivedQty(db, po.id, s.itemId) + 1e-9) bad("Received quantity is more than the pending PO quantity", "ERROR");
+        if (!(s.qty > 0) || s.qty > pl.qty - receivedQty(db, po.id, s.itemId, s.brand) + 1e-9) bad("Received quantity is more than the pending PO quantity", "ERROR");
         sub += s.qty * s.price;
         tax += s.qty * s.price * s.taxRate / 100;
       }
@@ -1486,7 +1507,7 @@ var Core = (() => {
       if (Math.abs(r.advanceAdjusted - adj) > 0.01 || Math.abs(r.payable - (r.grandTotal - r.advanceAdjusted)) > 0.01) bad("Advance adjustment is wrong");
       for (const l of v.ups("poLines")) {
         const cur = db.find("poLines", l.id);
-        if (!cur || cur.poId !== po.id || !same(cur, l, ["price", "itemId", "queryNote", "queryStatus"])) bad("Only the PO quantity may change here");
+        if (!cur || cur.poId !== po.id || !same(cur, l, ["price", "itemId", "brand", "queryNote", "queryStatus"])) bad("Only the PO quantity may change here");
       }
     }
     if (action === "invoice.accept") {
@@ -1514,7 +1535,7 @@ var Core = (() => {
     if (action === "query.raise") {
       for (const l of v.ups("poLines")) {
         const cur = db.find("poLines", l.id);
-        if (!cur || !same(cur, l, ["qty", "price", "itemId", "poId"]) || l.queryStatus !== "Open" || !l.queryNote) bad("Invalid price query", "ERROR");
+        if (!cur || !same(cur, l, ["qty", "price", "itemId", "brand", "poId"]) || l.queryStatus !== "Open" || !l.queryNote) bad("Invalid price query", "ERROR");
       }
     }
     if (action === "stock.issue" || action === "stock.adjust") {
@@ -1526,20 +1547,21 @@ var Core = (() => {
         if (!s.date) bad("Enter the date", "ERROR");
         if (action === "stock.issue") {
           if (s.type !== "OUT" || !(s.qty > 0) || !s.toDept) bad("Enter quantity and who the stock is issued to", "ERROR");
-          out[s.itemId] = (out[s.itemId] || 0) + s.qty;
-          if (out[s.itemId] > (bal[s.itemId] || 0) + 1e-9) bad(`Only ${bal[s.itemId] || 0} ${item.unit} of ${item.name} in stock`, "ERROR");
+          const k = stockKey(s.itemId, s.brand);
+          out[k] = (out[k] || 0) + s.qty;
+          if (out[k] > (bal[k] || 0) + 1e-9) bad(`Only ${bal[k] || 0} ${item.unit} of ${item.name}${normBrand(s.brand) ? " (" + normBrand(s.brand) + ")" : ""} in stock`, "ERROR");
         } else if (s.type !== "ADJUST" || !s.qty || !s.note) bad("Adjustments need a quantity (+/-) and a reason", "ERROR");
       }
     }
     if (action === "master.manage") {
       for (const l of v.ups("poLines")) {
         const cur = db.find("poLines", l.id);
-        if (!cur || !same(cur, l, ["qty", "price", "itemId", "poId", "queryNote", "queryBy"]) || l.queryStatus !== "Resolved") bad("Only the price query can be closed here");
+        if (!cur || !same(cur, l, ["qty", "price", "itemId", "brand", "poId", "queryNote", "queryBy"]) || l.queryStatus !== "Resolved") bad("Only the price query can be closed here");
       }
       for (const p of v.ups("prices")) {
         if (!db.find("vendors", p.vendorId) && !v.get("vendors", p.vendorId)) bad("Unknown vendor in price list", "ERROR");
         if (!db.find("items", p.itemId) && !v.get("items", p.itemId)) bad("Unknown item in price list", "ERROR");
-        if (p.id !== `${p.vendorId}:${p.itemId}` || p.price < 0) bad("Invalid price row", "ERROR");
+        if (p.id !== lineKey(p.vendorId, p.itemId, p.brand) || p.price < 0) bad("Invalid price row", "ERROR");
       }
     }
   }
@@ -1843,7 +1865,7 @@ var Core = (() => {
     for (const k of Object.keys(data)) for (const r of data[k]) db.put(k, r);
     for (const u of sampleUsers()) if (!db.rows("users").some((x) => lc(x.loginId) === lc(u.loginId))) db.put("users", u);
     host.bumpStamp();
-    return "Sample data loaded: 7 vendors, 12 items, 18 vendor prices, 10 POs, receipts, payments, stock movements. Log in with demo.purchase / demo.factory / demo.accounts / demo.store (password Demo@1234), and use your own admin login for the Admin parts. Remove everything with clearAllDataBeforeGoingLive() before real use.";
+    return "Sample data loaded: 7 vendors, 12 items, 19 vendor prices, 10 POs, receipts, payments, stock movements. Log in with demo.purchase / demo.factory / demo.accounts / demo.store (password Demo@1234), and use your own admin login for the Admin parts. Remove everything with clearAllDataBeforeGoingLive() before real use.";
   }
   function clearAllData(host) {
     let n = 0;

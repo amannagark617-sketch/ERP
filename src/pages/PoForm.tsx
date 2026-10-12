@@ -4,6 +4,7 @@ import { approvalRoute, itemOf, offersFor, poValue, vendorOf } from '../domain';
 import { Card, Field, go, run } from '../ui';
 import { addDays, inr, today } from '../utils';
 import { PoLine } from '../types';
+import { sameBrand, stockKey } from '../shared/keys';
 
 export default function PoForm({ id }: { id?: string }) {
   const s = useStore();
@@ -11,7 +12,7 @@ export default function PoForm({ id }: { id?: string }) {
   const existing = id ? s.pos.find(p => p.id === id) : undefined;
   const [vendorId, setVendorId] = useState(existing?.vendorId ?? '');
   const [qty, setQty] = useState<Record<string, number>>(
-    Object.fromEntries((existing?.lines ?? []).map(l => [l.itemId, l.qty])),
+    Object.fromEntries((existing?.lines ?? []).map(l => [stockKey(l.itemId, l.brand), l.qty])),
   );
   const [terms, setTerms] = useState(existing?.terms ?? '');
   const [adv, setAdv] = useState(existing?.advanceRequired ?? false);
@@ -22,7 +23,7 @@ export default function PoForm({ id }: { id?: string }) {
   if (existing && existing.status !== 'Draft' && existing.status !== 'Rejected') return <div className="warn">This PO can no longer be edited.</div>;
 
   const vendor = vendorOf(s, vendorId);
-  const lines: PoLine[] = (vendor?.items ?? []).filter(i => qty[i.itemId] > 0).map(i => ({ itemId: i.itemId, qty: qty[i.itemId], price: i.price }));
+  const lines: PoLine[] = (vendor?.items ?? []).filter(i => qty[stockKey(i.itemId, i.brand)] > 0).map(i => ({ itemId: i.itemId, brand: i.brand, qty: qty[stockKey(i.itemId, i.brand)], price: i.price }));
   const total = poValue({ lines } as never);
   const input = () => ({ id, vendorId, lines, terms, advanceRequired: adv, advanceAmount: advAmt, expectedDate: expected });
   const save = async (submit: boolean) => {
@@ -49,19 +50,21 @@ export default function PoForm({ id }: { id?: string }) {
       <Card title="Items (price comes from the vendor's price list and cannot be edited)">
         {!vendor ? <p className="empty">Select a vendor to see its items and prices.</p> : (
           <div className="tablewrap"><table>
-            <thead><tr><th>Item</th><th className="r">Price</th><th>Cheaper elsewhere?</th><th className="r">Quantity</th><th className="r">Amount</th></tr></thead>
+            <thead><tr><th>Item</th><th>Brand</th><th className="r">Price</th><th>Cheaper elsewhere? (same brand)</th><th className="r">Quantity</th><th className="r">Amount</th></tr></thead>
             <tbody>{vendor.items.filter(vi => itemOf(s, vi.itemId)?.active !== false).map(vi => {
-              const cheaper = offersFor(s, vi.itemId).find(o => o.vendor.id !== vendor.id && o.price < vi.price);
+              const cheaper = offersFor(s, vi.itemId).find(o => o.vendor.id !== vendor.id && sameBrand(o.brand, vi.brand) && o.price < vi.price);
+              const k = stockKey(vi.itemId, vi.brand);
               return (
-              <tr key={vi.itemId}>
+              <tr key={k}>
                 <td>{itemOf(s, vi.itemId)?.name} <span className="mut">/{itemOf(s, vi.itemId)?.unit}</span></td>
+                <td>{vi.brand || <span className="mut">—</span>}</td>
                 <td className="r">{inr(vi.price)}</td>
                 <td className="mut">{cheaper ? <span className="bad">{inr(cheaper.price)} at {cheaper.vendor.name}</span> : '—'}</td>
-                <td className="r"><input type="number" min={0} style={{ width: 90 }} value={qty[vi.itemId] ?? ''} onChange={e => setQty({ ...qty, [vi.itemId]: +e.target.value })} /></td>
-                <td className="r">{inr((qty[vi.itemId] || 0) * vi.price)}</td>
+                <td className="r"><input type="number" min={0} style={{ width: 90 }} value={qty[k] ?? ''} onChange={e => setQty({ ...qty, [k]: +e.target.value })} /></td>
+                <td className="r">{inr((qty[k] || 0) * vi.price)}</td>
               </tr>
             );})}
-            <tr className="tot"><td colSpan={4} className="r">PO value (before tax)</td><td className="r">{inr(total)}</td></tr></tbody>
+            <tr className="tot"><td colSpan={5} className="r">PO value (before tax)</td><td className="r">{inr(total)}</td></tr></tbody>
           </table></div>
         )}
         {total > 0 && <p className="mut">Approval route: {approvalRoute({ lines }).join(' → ') || 'none (auto-approved)'} <span className="mut">(from the Roles tab)</span></p>}

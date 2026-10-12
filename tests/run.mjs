@@ -29,6 +29,7 @@ const boot = (u, all = false) => call({ action: 'bootstrap', token: T[u], all })
 const commit = (u, name, ops, note = '') => call({ action: 'commit', token: T[u], name, ops, note });
 const up = (table, row) => ({ t: 'upsert', table, row });
 const sheetRow = (tab, pred) => host.read(tab).find(pred);
+const sheetRowsOf = (tab, poKey) => host.read(tab).filter(r => r['PO Key'] === poKey);
 
 console.log('single spreadsheet layout');
 await test('12 tabs, logins and data in the same file', () => {
@@ -176,7 +177,7 @@ await test('issue stock: needs permission, a destination and enough on hand', ()
   assert.match(commit('inventory', 'stock.issue', stk({ qty: 500 })).error, /Only 100 pcs/);
   assert.ok(commit('inventory', 'stock.issue', stk({}), 'Issued 30 to Production').ok);
   const b = boot('inventory');
-  assert.equal(b.stockBase.I1 + b.data.stock.filter(s => s.itemId === 'I1').reduce((a, s) => a + (s.type === 'OUT' ? -s.qty : s.qty), 0), 70);
+  assert.equal(b.stockBase['I1|'] + b.data.stock.filter(s => s.itemId === 'I1').reduce((a, s) => a + (s.type === 'OUT' ? -s.qty : s.qty), 0), 70);
 });
 await test('adjustments need the Adjust Stock capability and a reason', () => {
   assert.equal(commit('inventory', 'stock.adjust', stk({ type: 'ADJUST', qty: -2, note: 'damaged' })).code, 'FORBIDDEN');
@@ -260,10 +261,10 @@ await test('a PO settled two years ago stays in the Sheet but is not loaded unle
   const b = boot('accounts');
   assert.ok(b.partial);
   assert.ok(!b.data.pos.some(p => p.id === 'po9') && !b.data.stock.some(s => s.id === 'r9:I4') && !b.data.payments.some(p => p.id === 'pay9'));
-  assert.equal(b.stockBase.I4, 10, 'its stock is still counted');
+  assert.equal(b.stockBase['I4|'], 10, 'its stock is still counted');
   const all = boot('accounts', true);
   assert.ok(all.data.pos.some(p => p.id === 'po9') && all.data.stock.some(s => s.id === 'r9:I4') && !all.partial);
-  assert.equal(all.stockBase.I4 || 0, 0);
+  assert.equal(all.stockBase['I4|'] || 0, 0);
 });
 await test('open work always loads, even if old', () => {
   const b = boot('accounts');
@@ -326,11 +327,14 @@ await test('sample data loads into an empty system, is consistent, and works wit
   const B = (t) => M.handle(h, { action: 'bootstrap', token: t, all: true });
   const C = (t, name, ops, note = '') => M.handle(h, { action: 'commit', token: t, name, ops, note });
   const b = B(tk('demo.purchase'));
-  assert.equal(b.data.pos.length, 10); assert.equal(b.data.vendors.length, 7); assert.equal(b.data.items.length, 12); assert.equal(b.data.prices.length, 18);
-  assert.equal(b.data.prices.filter(p => p.itemId === 'I3').length, 3, 'one item sold by three vendors');
+  assert.equal(b.data.pos.length, 10); assert.equal(b.data.vendors.length, 7); assert.equal(b.data.items.length, 12); assert.equal(b.data.prices.length, 19);
+  assert.equal(b.data.prices.filter(p => p.itemId === 'I3').length, 4, 'one item: three vendors, one of them in two brands');
+  assert.deepEqual([...new Set(b.data.prices.filter(p => p.itemId === 'I3').map(p => p.brand))].sort(), ['ComfortPlus', 'Duraflex', 'SoftRest']);
   // stock on hand & low-stock alerts
-  const onHand = (id) => (b.stockBase[id] || 0) + b.data.stock.reduce((a, s) => a + (s.itemId === id ? (s.type === 'OUT' ? -s.qty : s.qty) : 0), 0);
-  assert.deepEqual(['I1', 'I2', 'I3', 'I4', 'I5', 'I6'].map(onHand), [40, 8, 215, 650, 55, 350]);
+  const onHand = (id, brand) => Object.entries(b.stockBase).filter(([k]) => k.startsWith(id + '|') && (brand === undefined || k === id + '|' + brand.toLowerCase())).reduce((a, [, v]) => a + v, 0)
+    + b.data.stock.reduce((a, s) => a + (s.itemId === id && (brand === undefined || s.brand.toLowerCase() === brand.toLowerCase()) ? (s.type === 'OUT' ? -s.qty : s.qty) : 0), 0);
+  assert.deepEqual(['I1', 'I2', 'I3', 'I4', 'I5', 'I6'].map(i => onHand(i)), [40, 8, 245, 650, 55, 350]);
+  assert.equal(onHand('I3', 'ComfortPlus'), 215); assert.equal(onHand('I3', 'Duraflex'), 30); assert.equal(onHand('I3', 'SoftRest'), 0, 'stock is tracked per brand');
   const low = b.data.items.filter(i => i.minStock > 0 && onHand(i.id) <= i.minStock).map(i => i.id);
   assert.deepEqual(low, ['I1', 'I2'], 'two low-stock items');
   // payments never exceed what is payable; the story the sample tells
@@ -347,7 +351,7 @@ await test('sample data loads into an empty system, is consistent, and works wit
   const r4 = b.data.receipts.find(r => r.id === 'r4');
   assert.ok(C(tk('demo.accounts'), 'invoice.accept', [up('receipts', { ...r4, accepted: true, acceptedDate: TODAY })]).ok);
   assert.ok(C(tk('demo.accounts'), 'payment.make', [up('payments', { id: 'px', kind: 'invoice', poId: 'po4', receiptId: 'r4', amount: r4.payable, date: TODAY, screenshot: '' })]).ok);
-  assert.ok(C(tk('demo.store'), 'stock.issue', [up('stock', { id: 'sx', date: TODAY, itemId: 'I3', type: 'OUT', qty: 10, toDept: 'Production', note: '' })]).ok);
+  assert.ok(C(tk('demo.store'), 'stock.issue', [up('stock', { id: 'sx', date: TODAY, itemId: 'I3', brand: 'ComfortPlus', type: 'OUT', qty: 10, toDept: 'Production', note: '' })]).ok);
   // cleanup before going live keeps the admin, roles and settings
   const n = M.clearAllData(h);
   assert.ok(n > 100);
@@ -355,6 +359,65 @@ await test('sample data loads into an empty system, is consistent, and works wit
   assert.deepEqual(h.read('Users').map(u => u['Login ID']), ['admin']); assert.equal(h.read('Roles').length, 5); assert.ok(h.read('Settings').length >= 5);
   assert.ok(M.handle(h, { action: 'login', loginId: 'admin', password: 'Admin-Pass-1' }).ok, 'admin still works');
   assert.match(M.loadSample(h, TODAY), /Sample data loaded/, 'and it can be loaded again');
+});
+
+console.log('brand');
+await test('brand: a vendor can sell one item in several brands; keys include the brand; blank brand keeps the old key', () => {
+  const price = (vendorId, itemId, brand, p, id) => up('prices', { id: id ?? (brand ? `${vendorId}:${itemId}:${brand.toLowerCase()}` : `${vendorId}:${itemId}`), vendorId, itemId, brand, price: p });
+  assert.ok(commit('admin', 'master.manage', [price('V2', 'I3', 'SoftRest', 1925)]).ok);
+  assert.ok(commit('admin', 'master.manage', [price('V2', 'I3', 'ComfortPlus', 1850)]).ok);
+  const rows = boot('admin').data.prices.filter(p => p.vendorId === 'V2' && p.itemId === 'I3');
+  assert.deepEqual(rows.map(r => [r.id, r.brand, r.price]).sort(), [['V2:I3', '', 1850], ['V2:I3:comfortplus', 'ComfortPlus', 1850], ['V2:I3:softrest', 'SoftRest', 1925]]);
+  assert.match(commit('admin', 'master.manage', [price('V2', 'I3', 'SoftRest', 1900, 'V2:I3')]).error, /Invalid price row/, 'key must match the brand');
+  assert.equal(sheetRow('Prices', r => r['Key (auto)'] === 'V2:I3:softrest').Brand, 'SoftRest');
+  const c = commit('admin', 'master.manage', [price('V2', 'I3', 'Weird:|Brand', 1, 'V2:I3:weird brand')]); assert.ok(c.ok, c.error);
+  assert.equal(c.applied[0].row.brand, 'Weird Brand', 'separators removed from a typed brand');
+  assert.ok(commit('admin', 'master.manage', [{ t: 'delete', table: 'prices', id: c.applied[0].row.id }]).ok);
+});
+await test('brand: PO line price must be that brand\'s price; the brand must be on the vendor\'s list', () => {
+  const po = (lines) => [up('pos', { id: 'pb1', vendorId: 'V2', terms: '', advanceRequired: false, advanceAmount: 0, expectedDate: '2026-12-01', status: 'Draft', advanceStatus: 'Not Required', route: '', step: 0, date: TODAY }),
+    ...lines.map(([brand, qty, price]) => up('poLines', { id: brand ? `pb1:I3:${brand.toLowerCase()}` : 'pb1:I3', poId: 'pb1', itemId: 'I3', brand, qty, price }))];
+  assert.match(commit('navneet', 'po.save', po([['SoftRest', 10, 1850]])).error, /vendor price/, 'ComfortPlus price on a SoftRest line');
+  assert.match(commit('navneet', 'po.save', po([['NoSuchBrand', 10, 1850]])).error, /vendor price/, 'brand not on the list');
+  const r = commit('navneet', 'po.save', po([['SoftRest', 10, 1925], ['', 5, 1850]]), 'Draft created');
+  assert.ok(r.ok, r.error);
+  const lines = sheetRowsOf('POLines', 'pb1');
+  assert.deepEqual(lines.map(l => [l.Brand, l.Quantity, l.Price]).sort(), [['', 5, 1850], ['SoftRest', 10, 1925]]);
+});
+await test('brand: receipts, pending quantity and stock are all per brand', () => {
+  const b0 = boot('navneet').data.pos.find(p => p.id === 'pb1');
+  const base = { id: 'pb1', vendorId: 'V2', terms: '', advanceRequired: false, advanceAmount: 0, expectedDate: '2026-12-01', advanceStatus: 'Not Required', date: TODAY };
+  let r = commit('navneet', 'po.submit', [up('pos', { ...b0, status: 'Pending Factory Head', route: 'Factory Head', step: 0 })]); assert.ok(r.ok, r.error);
+  r = commit('factoryhead', 'po.approve', [up('pos', { ...r.applied[0].row, status: 'Approved', step: 1, advanceStatus: 'Not Required' })]); assert.ok(r.ok, r.error);
+  r = commit('navneet', 'po.send', [up('pos', { ...r.applied[0].row, status: 'Sent to Vendor', sentVia: 'Email', sentTo: 'x' })]); assert.ok(r.ok, r.error);
+  const rc = (n, brand, qty, price = 1925, inv = 'BR-' + n) => [
+    up('receipts', { id: 'rb' + n, grnNo: '', type: 'Invoice', poId: 'pb1', vendorId: 'V2', invoiceNo: inv, invoiceDate: TODAY, receivedDate: TODAY, subtotal: qty * price, taxTotal: 0, grandTotal: qty * price, advanceAdjusted: 0, payable: qty * price, dueDate: TODAY, accepted: false, acceptedDate: '', invoiceFile: '' }),
+    up('stock', { id: brand ? `rb${n}:I3:${brand.toLowerCase()}` : `rb${n}:I3`, date: TODAY, itemId: 'I3', brand, type: 'IN', qty, price, taxRate: 0, receiptId: 'rb' + n, toDept: '', note: '' })];
+  assert.match(commit('inventory', 'receipt.create', rc(1, 'ComfortPlus', 5, 1850)).error, /not on the PO/, 'ComfortPlus is not on this PO');
+  assert.match(commit('inventory', 'receipt.create', rc(1, 'SoftRest', 12)).error, /more than the pending/, '12 of 10 SoftRest');
+  assert.ok(commit('inventory', 'receipt.create', rc(1, 'SoftRest', 6)).ok);
+  assert.match(commit('inventory', 'receipt.create', rc(2, 'SoftRest', 5)).error, /more than the pending/, 'only 4 SoftRest left, even though 5 unbranded are still pending');
+  assert.ok(commit('inventory', 'receipt.create', rc(2, 'SoftRest', 4)).ok);
+  assert.ok(commit('inventory', 'receipt.create', rc(3, '', 5, 1850)).ok, 'the unbranded line is separate');
+  const st = boot('inventory');
+  const bal = (brand) => (st.stockBase['I3|' + brand.toLowerCase()] || 0) + st.data.stock.filter(s => s.itemId === 'I3' && s.brand.toLowerCase() === brand.toLowerCase()).reduce((a, s) => a + (s.type === 'OUT' ? -s.qty : s.qty), 0);
+  assert.equal(bal('SoftRest'), 10); assert.equal(bal(''), 105, 'unbranded foam: 100 opening + 5 received');
+  assert.equal(sheetRow('Stock', x => x.Key === 'rb1:I3:softrest').Brand, 'SoftRest');
+  // issuing: limited by the stock of THAT brand
+  const out = (brand, qty) => commit('inventory', 'stock.issue', stk({ itemId: 'I3', brand, qty }));
+  assert.match(out('SoftRest', 11).error, /Only 10 pcs of Foam sheet 40D \(SoftRest\)/);
+  assert.match(out('Duraflex', 1).error, /Only 0 pcs of Foam sheet 40D \(Duraflex\)/);
+  assert.ok(out('SoftRest', 10).ok);
+  assert.ok(out('', 100).ok);
+});
+await test('brand: a price row typed by hand with a Brand cell gets its key; editing the Brand cell re-keys it', () => {
+  host.append('Prices', { 'Vendor Name': 'bharat foam', 'Item Name': 'wooden frame set', Brand: 'TeakCo', 'Agreed Price (Rs)': 3100 });
+  let p = boot('admin').data.prices.find(x => x.vendorId === 'V4' && x.itemId === 'I5');
+  assert.ok(p && p.id === 'V4:I5:teakco' && p.brand === 'TeakCo' && p.price === 3100);
+  const row = sheetRow('Prices', r => r['Key (auto)'] === 'V4:I5:teakco');
+  host.update('Prices', row.__row, { Brand: 'Oakline' });
+  p = boot('admin').data.prices.find(x => x.vendorId === 'V4' && x.itemId === 'I5');
+  assert.equal(p.id, 'V4:I5:oakline'); assert.equal(p.brand, 'Oakline');
 });
 
 console.log('five roles: CA and HO merged into Admin');

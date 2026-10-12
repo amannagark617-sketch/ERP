@@ -45,7 +45,7 @@ export async function makePoPdf(s: AppState, po: PurchaseOrder): Promise<{ data:
       name: v?.name ?? '(vendor)', contact: v?.contact ?? '', email: v?.email ?? '', phone: v?.whatsapp ?? '',
       address: [v?.address, v?.city, v?.state].filter(Boolean).join(', '), gstin: v?.gstin ?? '', pan: v?.pan ?? '', msme: !!v?.msme, msmeType: v?.msmeType ?? '', udyamNo: v?.udyamNo ?? '',
     },
-    lines: po.lines.map(l => ({ name: itemOf(s, l.itemId)?.name ?? l.itemId, unit: itemOf(s, l.itemId)?.unit ?? '', qty: l.qty, price: l.price })),
+    lines: po.lines.map(l => ({ name: itemOf(s, l.itemId)?.name ?? l.itemId, brand: l.brand ?? '', unit: itemOf(s, l.itemId)?.unit ?? '', qty: l.qty, price: l.price })),
     approvals,
     standardTerms: split(st.PoTerms),
     draft: !issued,

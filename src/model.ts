@@ -1,5 +1,6 @@
 import { DATA_TABLES, TableKey } from './shared/schema';
 import { AppState } from './types';
+import { lineKey } from './shared/keys';
 
 /** Flat rows exactly as stored in the Google Sheet tabs. */
 export type Flat = Record<TableKey, any[]>;
@@ -14,16 +15,16 @@ export function nest(f: Flat, stockBase: Record<string, number> = {}): AppState 
     items: f.items.map(x => ({ ...x })),
     vendors: f.vendors.map(v => ({
       ...v,
-      items: by(f.prices, 'vendorId', v.id).map(({ id: _i, vendorId: _v, vendorName: _n, itemName: _m, ...rest }) => rest),
+      items: by(f.prices, 'vendorId', v.id).map(({ id: _i, vendorId: _v, vendorName: _n, itemName: _m, brand, ...rest }) => ({ ...rest, brand: brand ?? '' })),
     })),
     pos: f.pos.map(p => ({
       ...p,
       route: p.route ? String(p.route).split(',') : [],
-      lines: by(f.poLines, 'poId', p.id).map(({ id: _i, poId: _p, poNo: _n, itemName: _m, ...rest }) => rest),
+      lines: by(f.poLines, 'poId', p.id).map(({ id: _i, poId: _p, poNo: _n, itemName: _m, brand, ...rest }) => ({ ...rest, brand: brand ?? '' })),
     })),
     receipts: f.receipts.map(r => ({
       ...r,
-      lines: by(ins, 'receiptId', r.id).map(({ id: _i, receiptId: _r, date: _d, type: _t, itemName: _m, grnNo: _g, toDept: _x, note: _o, by: _b, ...rest }) => rest),
+      lines: by(ins, 'receiptId', r.id).map(({ id: _i, receiptId: _r, date: _d, type: _t, itemName: _m, grnNo: _g, toDept: _x, note: _o, by: _b, brand, ...rest }) => ({ ...rest, brand: brand ?? '' })),
     })),
     payments: f.payments.map(x => ({ ...x })),
     stock: f.stock.filter(s => s.type !== 'IN').map(x => ({ ...x })),
@@ -37,15 +38,15 @@ export function flatten(s: AppState): Flat {
   f.items = s.items.map(x => ({ ...x }));
   for (const { items, ...v } of s.vendors) {
     f.vendors.push(v);
-    items.forEach(i => f.prices.push({ ...i, id: `${v.id}:${i.itemId}`, vendorId: v.id }));
+    items.forEach(i => f.prices.push({ ...i, id: lineKey(v.id, i.itemId, i.brand), vendorId: v.id }));
   }
   for (const { lines, route, ...p } of s.pos) {
     f.pos.push({ ...p, route: route.join(',') });
-    lines.forEach(l => f.poLines.push({ ...l, id: `${p.id}:${l.itemId}`, poId: p.id }));
+    lines.forEach(l => f.poLines.push({ ...l, id: lineKey(p.id, l.itemId, l.brand), poId: p.id }));
   }
   for (const { lines, ...r } of s.receipts) {
     f.receipts.push(r);
-    lines.forEach(l => f.stock.push({ ...l, id: `${r.id}:${l.itemId}`, receiptId: r.id, type: 'IN', date: r.receivedDate, toDept: '', note: '' }));
+    lines.forEach(l => f.stock.push({ ...l, id: lineKey(r.id, l.itemId, l.brand), receiptId: r.id, type: 'IN', date: r.receivedDate, toDept: '', note: '' }));
   }
   f.payments = s.payments.map(x => ({ ...x }));
   f.stock.push(...s.stock.map(x => ({ ...x })));

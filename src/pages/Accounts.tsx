@@ -1,6 +1,6 @@
 import { Fragment, ReactNode, useState } from 'react';
 import { actions, useAuth, useStore } from '../store';
-import { itemName, paidTotal, poOf, receiptBalance, vendorOf } from '../domain';
+import { lineName, paidTotal, poOf, receiptBalance, vendorOf } from '../domain';
 import { Badge, Card, Empty, Field, FileLink, Link, PayForm, Stat, run } from '../ui';
 import { addDays, fmtDate, inr, today } from '../utils';
 import { Receipt } from '../types';
@@ -82,7 +82,7 @@ export default function Accounts() {
             <tbody>{toAccept.map(r => {
               const po = poOf(s, r.poId);
               return <tr key={r.id}><td>{r.invoiceNo}<br /><span className="mut">{fmtDate(r.invoiceDate)}</span></td><td>{po && <Link to={`/pos/${po.id}`}>{po.poNo}</Link>}</td><td>{vendorOf(s, r.vendorId)?.name}</td>
-                <td className="mut">{r.lines.map(l => `${itemName(s, l.itemId)} × ${l.qty}`).join(', ')}</td>
+                <td className="mut">{r.lines.map(l => `${lineName(s, l)} × ${l.qty}`).join(', ')}</td>
                 <td className="r">{inr(r.grandTotal)}</td><td className="r">{inr(r.advanceAdjusted)}</td><td className="r">{inr(r.payable)}</td>
                 <td className="r">{canAccept && <button className="btn sm primary" onClick={() => run(() => actions.acceptInvoice(r.id))}>Accept &amp; book</button>} <FileLink id={r.invoiceFile} label="Invoice copy" /></td></tr>;
             })}</tbody>

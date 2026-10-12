@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { actions, useAuth, useStore } from '../store';
-import { itemName } from '../domain';
+import { itemName, knownBrands } from '../domain';
+import { normBrand, sameBrand } from '../shared/keys';
 import { Badge, Card, Empty, Field, run } from '../ui';
 import { inr } from '../utils';
 import { Vendor } from '../types';
@@ -45,8 +46,8 @@ export default function Vendors() {
             </p>
           </div>
           {v.items.length === 0 ? <Empty>No items on this vendor's price list.</Empty> : (
-            <table style={{ maxWidth: 520 }}><thead><tr><th>Item</th><th className="r">Agreed price</th></tr></thead>
-              <tbody>{v.items.map(i => <tr key={i.itemId}><td>{itemName(s, i.itemId)}</td><td className="r">{inr(i.price)}</td></tr>)}</tbody></table>
+            <table style={{ maxWidth: 560 }}><thead><tr><th>Item</th><th>Brand</th><th className="r">Agreed price</th></tr></thead>
+              <tbody>{v.items.map(i => <tr key={i.itemId + '|' + i.brand}><td>{itemName(s, i.itemId)}</td><td>{i.brand || <span className="mut">—</span>}</td><td className="r">{inr(i.price)}</td></tr>)}</tbody></table>
           )}
         </Card>
       ))}
@@ -60,12 +61,13 @@ function VendorEditor({ v, onClose }: { v: Draft; onClose: () => void }) {
   const [d, setD] = useState(v);
   const [saving, setSaving] = useState(false);
   const [addItem, setAddItem] = useState('');
+  const [addBrand, setAddBrand] = useState('');
   const [addPrice, setAddPrice] = useState(0);
   const f = (key: keyof Draft, label: string, props: Record<string, unknown> = {}) => (
     <Field label={label}><input value={String(d[key] ?? '')} onChange={e => setD({ ...d, [key]: e.target.value })} {...props} /></Field>
   );
-  const setPrice = (itemId: string, price: number) => setD({ ...d, items: d.items.map(i => (i.itemId === itemId ? { ...i, price } : i)) });
-  const available = s.items.filter(i => i.active && !d.items.some(x => x.itemId === i.id));
+  const setPrice = (itemId: string, brand: string, price: number) => setD({ ...d, items: d.items.map(i => (i.itemId === itemId && sameBrand(i.brand, brand) ? { ...i, price } : i)) });
+  const dup = !!addItem && d.items.some(x => x.itemId === addItem && sameBrand(x.brand, addBrand));
   const save = async () => {
     if (!d.name.trim()) return alert('Enter the vendor name');
     if (d.msme && !d.udyamNo.trim() && !confirm('MSME vendor without a Udyam registration number. Save anyway?')) return;
@@ -89,21 +91,25 @@ function VendorEditor({ v, onClose }: { v: Draft; onClose: () => void }) {
         <Field label="Active" hint="Set to No to stop using this vendor. Old POs are kept."><select value={d.active ? 'Yes' : 'No'} onChange={e => setD({ ...d, active: e.target.value === 'Yes' })}><option>Yes</option><option>No</option></select></Field>
       </div>
       <h3 style={{ margin: '8px 0' }}>This vendor's price list</h3>
-      <table style={{ maxWidth: 560, marginBottom: 8 }}>
-        <thead><tr><th>Item</th><th className="r">Agreed price</th><th></th></tr></thead>
+      <table style={{ maxWidth: 640, marginBottom: 8 }}>
+        <thead><tr><th>Item</th><th>Brand</th><th className="r">Agreed price</th><th></th></tr></thead>
         <tbody>
           {d.items.map(i => (
-            <tr key={i.itemId}><td>{itemName(s, i.itemId)}</td>
-              <td className="r"><input type="number" min={0} style={{ width: 120 }} value={i.price} onChange={e => setPrice(i.itemId, +e.target.value)} /></td>
-              <td className="r"><button className="btn sm danger" onClick={() => setD({ ...d, items: d.items.filter(x => x.itemId !== i.itemId) })}>Remove</button></td></tr>
+            <tr key={i.itemId + '|' + i.brand}><td>{itemName(s, i.itemId)}</td><td>{i.brand || <span className="mut">—</span>}</td>
+              <td className="r"><input type="number" min={0} style={{ width: 120 }} value={i.price} onChange={e => setPrice(i.itemId, i.brand, +e.target.value)} /></td>
+              <td className="r"><button className="btn sm danger" onClick={() => setD({ ...d, items: d.items.filter(x => !(x.itemId === i.itemId && sameBrand(x.brand, i.brand))) })}>Remove</button></td></tr>
           ))}
           <tr>
-            <td><select value={addItem} onChange={e => setAddItem(e.target.value)}><option value="">Add an item…</option>{available.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}</select></td>
+            <td><select value={addItem} onChange={e => setAddItem(e.target.value)}><option value="">Add an item…</option>{s.items.filter(i => i.active).map(i => <option key={i.id} value={i.id}>{i.name}</option>)}</select></td>
+            <td><input list="vendor-brands" placeholder="Brand (optional)" style={{ width: 140 }} value={addBrand} onChange={e => setAddBrand(e.target.value)} />
+              <datalist id="vendor-brands">{knownBrands(s, addItem || undefined).map(b => <option key={b} value={b} />)}</datalist></td>
             <td className="r"><input type="number" min={0} style={{ width: 120 }} value={addPrice || ''} placeholder="Price" onChange={e => setAddPrice(+e.target.value)} /></td>
-            <td className="r"><button className="btn sm" disabled={!addItem || !(addPrice >= 0)} onClick={() => { setD({ ...d, items: [...d.items, { itemId: addItem, price: addPrice }] }); setAddItem(''); setAddPrice(0); }}>Add</button></td>
+            <td className="r"><button className="btn sm" disabled={!addItem || !(addPrice >= 0) || dup} title={dup ? 'Already on the list with this brand' : ''}
+              onClick={() => { setD({ ...d, items: [...d.items, { itemId: addItem, brand: normBrand(addBrand), price: addPrice }] }); setAddItem(''); setAddBrand(''); setAddPrice(0); }}>Add</button></td>
           </tr>
         </tbody>
       </table>
+      <p className="mut" style={{ marginTop: 0 }}>A vendor can sell the same item in several brands: add one row per brand, each with its own price.</p>
       <div className="row">
         <button className="btn primary" disabled={saving} onClick={save}>{saving ? 'Saving…' : 'Save vendor'}</button>
         <button className="btn" onClick={onClose}>Cancel</button>

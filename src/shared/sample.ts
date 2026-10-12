@@ -1,6 +1,7 @@
 // Optional SAMPLE DATA so a new owner can see what a working system looks like.
 // Loaded only when someone runs loadSampleData() in Apps Script; removed by clearAllDataBeforeGoingLive().
 import { TableKey } from './schema';
+import { lineKey } from './keys';
 
 type Rows = Partial<Record<TableKey, any[]>>;
 
@@ -50,41 +51,41 @@ export function sampleData(t: string): Rows {
   const vName: Record<string, string> = Object.fromEntries(vendorSpec.map(v => [v[0], v[1]]));
   const vendorOf = Object.fromEntries(vendorSpec.map(v => [v[0], { msme: v[5], terms: v[7] }]));
 
-  // ONE row per vendor + item: several vendors can sell the same item at different prices
-  const priceSpec: [string, string, number][] = [
-    ['V1', 'I1', 2400], ['V1', 'I2', 6800],
-    ['V2', 'I3', 1850], ['V4', 'I3', 1790], ['V6', 'I3', 1880],
-    ['V2', 'I4', 420], ['V5', 'I4', 395],
-    ['V3', 'I5', 3200], ['V3', 'I6', 95], ['V6', 'I6', 102],
-    ['V6', 'I7', 650], ['V4', 'I8', 310], ['V2', 'I8', 330],
-    ['V5', 'I9', 520], ['V2', 'I9', 540], ['V6', 'I10', 180],
-    ['V4', 'I11', 2100], ['V6', 'I11', 2250],
+  // ONE row per vendor + item + BRAND: several vendors (and brands) can sell the same item at different prices
+  const priceSpec: [string, string, string, number][] = [
+    ['V1', 'I1', 'MotionPro', 2400], ['V1', 'I2', 'MotionPro', 6800],
+    ['V2', 'I3', 'ComfortPlus', 1850], ['V2', 'I3', 'SoftRest', 1925], ['V4', 'I3', 'Duraflex', 1790], ['V6', 'I3', 'SoftRest', 1880],
+    ['V2', 'I4', 'Luxe', 420], ['V5', 'I4', 'Royal', 395],
+    ['V3', 'I5', '', 3200], ['V3', 'I6', '', 95], ['V6', 'I6', '', 102],
+    ['V6', 'I7', 'SteelCo', 650], ['V4', 'I8', 'Duraflex', 310], ['V2', 'I8', 'ComfortPlus', 330],
+    ['V5', 'I9', 'Royal', 520], ['V2', 'I9', 'Luxe', 540], ['V6', 'I10', '', 180],
+    ['V4', 'I11', 'BondFast', 2100], ['V6', 'I11', 'BondFast', 2250],
   ];
-  const price = (v: string, i: string) => priceSpec.find(p => p[0] === v && p[1] === i)![2];
+  const price = (v: string, i: string, brand: string) => priceSpec.find(p => p[0] === v && p[1] === i && p[2] === brand)![3];
 
   // ------------------------------------------------------------ purchase orders (numbered in date order)
-  interface PoSpec { n: number; vendor: string; date: number; lines: [string, number][]; status: string; route: string[]; step: number; advance: number; advStatus: string; expected: number; sent?: number; terms: string; events: [number, string, string][] }
+  interface PoSpec { n: number; vendor: string; date: number; lines: [string, string, number][]; status: string; route: string[]; step: number; advance: number; advStatus: string; expected: number; sent?: number; terms: string; events: [number, string, string][] }
   const P = 'Demo Purchase', F = 'Demo Factory Head', A = 'Demo Accounts', S = 'Demo Store', H = 'Administrator';
   const pos: PoSpec[] = [
-    { n: 1, vendor: 'V6', date: -60, lines: [['I6', 400]], status: 'Sent to Vendor', route: ['Factory Head'], step: 1, advance: 0, advStatus: 'Not Required', expected: -45, sent: -58, terms: 'Delivery at factory gate.',
+    { n: 1, vendor: 'V6', date: -60, lines: [['I6', '', 400]], status: 'Sent to Vendor', route: ['Factory Head'], step: 1, advance: 0, advStatus: 'Not Required', expected: -45, sent: -58, terms: 'Delivery at factory gate.',
       events: [[-60, P, 'Draft created and submitted for approval'], [-59, F, 'Approved'], [-58, P, 'Sent to vendor via Email'], [-55, S, 'Goods received, invoice DH-221'], [-53, A, 'Invoice accepted'], [-40, A, 'Paid 48144 against invoice']] },
-    { n: 2, vendor: 'V1', date: -48, lines: [['I1', 200]], status: 'Sent to Vendor', route: ['Factory Head'], step: 1, advance: 100000, advStatus: 'Advance Paid', expected: -30, sent: -45, terms: '30 days credit. 50% advance.',
+    { n: 2, vendor: 'V1', date: -48, lines: [['I1', 'MotionPro', 200]], status: 'Sent to Vendor', route: ['Factory Head'], step: 1, advance: 100000, advStatus: 'Advance Paid', expected: -30, sent: -45, terms: '30 days credit. 50% advance.',
       events: [[-48, P, 'Draft created and submitted for approval'], [-47, F, 'Approved'], [-46, A, 'Advance Paid: 100000'], [-45, P, 'Sent to vendor via Email'], [-35, S, 'Goods received, invoice SM/114 (120 of 200 pcs)'], [-33, A, 'Invoice accepted'], [-20, A, 'Part payment 150000 against invoice SM/114 (balance 89840 is overdue)']] },
-    { n: 3, vendor: 'V2', date: -28, lines: [['I3', 300], ['I4', 800]], status: 'Sent to Vendor', route: ['Factory Head'], step: 1, advance: 0, advStatus: 'Not Required', expected: -12, sent: -26, terms: 'Delivery within 15 days.',
+    { n: 3, vendor: 'V2', date: -28, lines: [['I3', 'ComfortPlus', 300], ['I4', 'Luxe', 800]], status: 'Sent to Vendor', route: ['Factory Head'], step: 1, advance: 0, advStatus: 'Not Required', expected: -12, sent: -26, terms: 'Delivery within 15 days.',
       events: [[-28, P, 'Draft created and submitted for approval'], [-27, F, 'Approved'], [-26, P, 'Sent to vendor via WhatsApp'], [-20, S, 'Goods received, invoice FF-778'], [-18, A, 'Invoice accepted'], [-8, A, 'Paid 500000 against invoice']] },
-    { n: 4, vendor: 'V3', date: -14, lines: [['I5', 100], ['I6', 500]], status: 'Sent to Vendor', route: ['Factory Head'], step: 1, advance: 0, advStatus: 'Not Required', expected: 3, sent: -12, terms: 'Part delivery allowed.',
+    { n: 4, vendor: 'V3', date: -14, lines: [['I5', '', 100], ['I6', '', 500]], status: 'Sent to Vendor', route: ['Factory Head'], step: 1, advance: 0, advStatus: 'Not Required', expected: 3, sent: -12, terms: 'Part delivery allowed.',
       events: [[-14, P, 'Draft created and submitted for approval'], [-13, F, 'Approved'], [-12, P, 'Sent to vendor via Email'], [-2, S, 'Goods received, invoice KT-5502 (60 of 100 sets)']] },
-    { n: 5, vendor: 'V3', date: -7, lines: [['I6', 600]], status: 'Sent to Vendor', route: ['Factory Head'], step: 1, advance: 0, advStatus: 'Not Required', expected: 5, sent: -5, terms: '',
+    { n: 5, vendor: 'V3', date: -7, lines: [['I6', '', 600]], status: 'Sent to Vendor', route: ['Factory Head'], step: 1, advance: 0, advStatus: 'Not Required', expected: 5, sent: -5, terms: '',
       events: [[-7, P, 'Draft created and submitted for approval'], [-6, F, 'Approved'], [-5, P, 'Sent to vendor via Email'], [-1, S, 'Price query raised to Admin: Vendor invoice shows Rs 99 per carton, PO says Rs 95']] },
-    { n: 6, vendor: 'V2', date: -6, lines: [['I8', 200]], status: 'Rejected', route: ['Factory Head'], step: 0, advance: 0, advStatus: 'Not Required', expected: 10, terms: '',
-      events: [[-6, P, 'Draft created and submitted for approval'], [-5, F, 'Not approved – Bharat Foam is cheaper for headrests, please re-raise']] },
-    { n: 7, vendor: 'V5', date: -4, lines: [['I4', 1500], ['I9', 800]], status: 'Pending Admin', route: ['Factory Head', 'Admin'], step: 1, advance: 200000, advStatus: 'Not Required', expected: 20, terms: '20% advance, balance 30 days.',
+    { n: 6, vendor: 'V2', date: -6, lines: [['I8', 'ComfortPlus', 200]], status: 'Rejected', route: ['Factory Head'], step: 0, advance: 0, advStatus: 'Not Required', expected: 10, terms: '',
+      events: [[-6, P, 'Draft created and submitted for approval'], [-5, F, 'Not approved – Duraflex headrests from Bharat Foam are cheaper, please re-raise']] },
+    { n: 7, vendor: 'V5', date: -4, lines: [['I4', 'Royal', 1500], ['I9', 'Royal', 800]], status: 'Pending Admin', route: ['Factory Head', 'Admin'], step: 1, advance: 200000, advStatus: 'Not Required', expected: 20, terms: '20% advance, balance 30 days.',
       events: [[-4, P, 'Draft created and submitted for approval'], [-3, F, 'Approved – OK to proceed, needs the Admin since above Rs 10 Lac']] },
-    { n: 8, vendor: 'V6', date: -2, lines: [['I7', 100], ['I10', 50]], status: 'Approved', route: ['Factory Head'], step: 1, advance: 30000, advStatus: 'Requested', expected: 12, terms: 'Advance before dispatch.',
+    { n: 8, vendor: 'V6', date: -2, lines: [['I7', 'SteelCo', 100], ['I10', '', 50]], status: 'Approved', route: ['Factory Head'], step: 1, advance: 30000, advStatus: 'Requested', expected: 12, terms: 'Advance before dispatch.',
       events: [[-2, P, 'Draft created and submitted for approval'], [-1, F, 'Approved'], [-1, 'System', 'Advance request sent to Accounts']] },
-    { n: 9, vendor: 'V4', date: -1, lines: [['I3', 200], ['I11', 20]], status: 'Pending Factory Head', route: ['Factory Head'], step: 0, advance: 0, advStatus: 'Not Required', expected: 14, terms: '',
+    { n: 9, vendor: 'V4', date: -1, lines: [['I3', 'Duraflex', 200], ['I11', 'BondFast', 20]], status: 'Pending Factory Head', route: ['Factory Head'], step: 0, advance: 0, advStatus: 'Not Required', expected: 14, terms: '',
       events: [[-1, P, 'Draft created and submitted for approval']] },
-    { n: 10, vendor: 'V1', date: 0, lines: [['I2', 25]], status: 'Draft', route: [], step: 0, advance: 0, advStatus: 'Not Required', expected: 21, terms: '',
+    { n: 10, vendor: 'V1', date: 0, lines: [['I2', 'MotionPro', 25]], status: 'Draft', route: [], step: 0, advance: 0, advStatus: 'Not Required', expected: 21, terms: '',
       events: [[0, P, 'Draft created']] },
   ];
   const poNo = (n: number) => 'PO-' + String(n).padStart(4, '0');
@@ -92,8 +93,8 @@ export function sampleData(t: string): Rows {
   const logRows: any[] = [];
   let lg = 0;
   const poRows = pos.map(p => {
-    p.lines.forEach(([item, qty]) => lineRows.push({
-      id: `po${p.n}:${item}`, poId: `po${p.n}`, poNo: poNo(p.n), itemId: item, itemName: iName[item], qty, price: price(p.vendor, item),
+    p.lines.forEach(([item, brand, qty]) => lineRows.push({
+      id: lineKey(`po${p.n}`, item, brand), poId: `po${p.n}`, poNo: poNo(p.n), itemId: item, itemName: iName[item], brand, qty, price: price(p.vendor, item, brand),
       queryNote: p.n === 5 ? 'Vendor invoice shows Rs 99 per carton, PO says Rs 95' : '', queryStatus: p.n === 5 ? 'Open' : '', queryBy: p.n === 5 ? S : '',
     }));
     p.events.forEach(([d, who, text]) => logRows.push({ id: 'lg' + ++lg, time: iso(d), user: who, role: '', action: 'sample', event: text, ref: `po${p.n}`, detail: 'sample data' }));
@@ -106,18 +107,18 @@ export function sampleData(t: string): Rows {
   });
 
   // ------------------------------------------------------------ goods receipts (= stock IN), invoices, payments
-  interface RcSpec { id: string; po: number; grn: number; inv: string; date: number; lines: [string, number, number][]; advAdj: number; accepted?: number }
+  interface RcSpec { id: string; po: number; grn: number; inv: string; date: number; lines: [string, string, number, number][]; advAdj: number; accepted?: number }
   const rcs: RcSpec[] = [
-    { id: 'r1', po: 1, grn: 1, inv: 'DH-221', date: -55, lines: [['I6', 400, 18]], advAdj: 0, accepted: -53 },
-    { id: 'r2', po: 2, grn: 2, inv: 'SM/114', date: -35, lines: [['I1', 120, 18]], advAdj: 100000, accepted: -33 },
-    { id: 'r3', po: 3, grn: 3, inv: 'FF-778', date: -20, lines: [['I3', 300, 18], ['I4', 800, 18]], advAdj: 0, accepted: -18 },
-    { id: 'r4', po: 4, grn: 4, inv: 'KT-5502', date: -2, lines: [['I5', 60, 18]], advAdj: 0 },
+    { id: 'r1', po: 1, grn: 1, inv: 'DH-221', date: -55, lines: [['I6', '', 400, 18]], advAdj: 0, accepted: -53 },
+    { id: 'r2', po: 2, grn: 2, inv: 'SM/114', date: -35, lines: [['I1', 'MotionPro', 120, 18]], advAdj: 100000, accepted: -33 },
+    { id: 'r3', po: 3, grn: 3, inv: 'FF-778', date: -20, lines: [['I3', 'ComfortPlus', 300, 18], ['I4', 'Luxe', 800, 18]], advAdj: 0, accepted: -18 },
+    { id: 'r4', po: 4, grn: 4, inv: 'KT-5502', date: -2, lines: [['I5', '', 60, 18]], advAdj: 0 },
   ];
   const receiptRows: any[] = [], stockRows: any[] = [];
   const payable: Record<string, number> = {};
   for (const r of rcs) {
     const po = pos.find(p => p.n === r.po)!;
-    const priced = r.lines.map(([item, qty, tax]) => ({ item, qty, tax, price: price(po.vendor, item) }));
+    const priced = r.lines.map(([item, brand, qty, tax]) => ({ item, brand, qty, tax, price: price(po.vendor, item, brand) }));
     const sub = r2(priced.reduce((a, l) => a + l.qty * l.price, 0));
     const tax = r2(priced.reduce((a, l) => a + (l.qty * l.price * l.tax) / 100, 0));
     const vi = vendorOf[po.vendor];
@@ -127,7 +128,7 @@ export function sampleData(t: string): Rows {
       invoiceNo: r.inv, invoiceDate: D(r.date), receivedDate: D(r.date), subtotal: sub, taxTotal: tax, grandTotal: r2(sub + tax), advanceAdjusted: r.advAdj, payable: payable[r.id],
       dueDate: addDays(D(r.date), vi.msme ? Math.min(vi.terms, 45) : vi.terms), accepted: r.accepted !== undefined, acceptedDate: r.accepted !== undefined ? D(r.accepted) : '', invoiceFile: '', createdBy: S,
     });
-    priced.forEach(l => stockRows.push({ id: `${r.id}:${l.item}`, date: D(r.date), itemId: l.item, itemName: iName[l.item], type: 'IN', qty: l.qty, receiptId: r.id,
+    priced.forEach(l => stockRows.push({ id: lineKey(r.id, l.item, l.brand), date: D(r.date), itemId: l.item, itemName: iName[l.item], brand: l.brand, type: 'IN', qty: l.qty, receiptId: r.id,
       grnNo: 'GRN-' + String(r.grn).padStart(4, '0'), price: l.price, taxRate: l.tax, toDept: '', note: '', by: S }));
   }
   // old pending balances (bills from before this system)
@@ -149,15 +150,16 @@ export function sampleData(t: string): Rows {
   ];
 
   // ------------------------------------------------------------ stock out & corrections
-  const mv = (id: string, d: number, item: string, type: 'OUT' | 'ADJUST', qty: number, toDept: string, note: string, by: string) =>
-    ({ id, date: D(d), itemId: item, itemName: iName[item], type, qty, receiptId: '', grnNo: '', price: 0, taxRate: 0, toDept, note, by });
-  const opening60 = (id: string, item: string, qty: number) => mv(id, -62, item, 'ADJUST', qty, '', 'Opening stock', H);
+  const mv = (id: string, d: number, item: string, brand: string, type: 'OUT' | 'ADJUST', qty: number, toDept: string, note: string, by: string) =>
+    ({ id, date: D(d), itemId: item, itemName: iName[item], brand, type, qty, receiptId: '', grnNo: '', price: 0, taxRate: 0, toDept, note, by });
+  const opening60 = (id: string, item: string, brand: string, qty: number) => mv(id, -62, item, brand, 'ADJUST', qty, '', 'Opening stock', H);
   stockRows.push(
-    opening60('os1', 'I1', 30), opening60('os2', 'I2', 12), opening60('os3', 'I3', 40), opening60('os4', 'I4', 100), opening60('os5', 'I5', 25), opening60('os6', 'I6', 150),
-    opening60('os7', 'I7', 60), opening60('os8', 'I8', 80), opening60('os9', 'I9', 200), opening60('os10', 'I10', 20), opening60('os11', 'I11', 5),
-    mv('o1', -15, 'I1', 'OUT', 60, 'Production', 'Batch 14', S), mv('o2', -3, 'I1', 'OUT', 50, 'Assembly', '', S), mv('o3', -6, 'I2', 'OUT', 4, 'Production', 'Motorised model', S),
-    mv('o4', -10, 'I3', 'OUT', 120, 'Production', '', S), mv('o5', -9, 'I3', 'ADJUST', -5, '', 'Damaged in handling', H), mv('o6', -8, 'I4', 'OUT', 250, 'Cutting', 'Batch 14', S),
-    mv('o7', -1, 'I5', 'OUT', 30, 'Assembly', '', S), mv('o8', -5, 'I6', 'OUT', 200, 'Packing', '', S), mv('o9', -7, 'I8', 'OUT', 30, 'Assembly', '', S),
+    opening60('os1', 'I1', 'MotionPro', 30), opening60('os2', 'I2', 'MotionPro', 12), opening60('os3', 'I3', 'ComfortPlus', 40), opening60('os3b', 'I3', 'Duraflex', 30),
+    opening60('os4', 'I4', 'Luxe', 100), opening60('os5', 'I5', '', 25), opening60('os6', 'I6', '', 150), opening60('os7', 'I7', 'SteelCo', 60), opening60('os8', 'I8', 'Duraflex', 80),
+    opening60('os9', 'I9', 'Royal', 200), opening60('os10', 'I10', '', 20), opening60('os11', 'I11', 'BondFast', 5),
+    mv('o1', -15, 'I1', 'MotionPro', 'OUT', 60, 'Production', 'Batch 14', S), mv('o2', -3, 'I1', 'MotionPro', 'OUT', 50, 'Assembly', '', S), mv('o3', -6, 'I2', 'MotionPro', 'OUT', 4, 'Production', 'Motorised model', S),
+    mv('o4', -10, 'I3', 'ComfortPlus', 'OUT', 120, 'Production', '', S), mv('o5', -9, 'I3', 'ComfortPlus', 'ADJUST', -5, '', 'Damaged in handling', H), mv('o6', -8, 'I4', 'Luxe', 'OUT', 250, 'Cutting', 'Batch 14', S),
+    mv('o7', -1, 'I5', '', 'OUT', 30, 'Assembly', '', S), mv('o8', -5, 'I6', '', 'OUT', 200, 'Packing', '', S), mv('o9', -7, 'I8', 'Duraflex', 'OUT', 30, 'Assembly', '', S),
   );
 
   // ------------------------------------------------------------ assemble
@@ -169,7 +171,7 @@ export function sampleData(t: string): Rows {
       udyamNo: v[5] ? `UDYAM-${v[4].slice(0, 2).toUpperCase()}-01-000000${v[0].slice(1)}` : '', gstin: `07AAAAA000${v[0].slice(1)}A1Z5`, pan: `AAAAA000${v[0].slice(1)}A`,
       address: 'Industrial Area, Plot ' + v[0].slice(1), city: v[3], state: v[4], paymentTermsDays: v[7], bankName: v[8], accountNo: v[9], ifsc: 'BANK0001234', active: v[10],
     }))),
-    prices: sys(priceSpec.map(([v, i, p]) => ({ id: `${v}:${i}`, vendorId: v, vendorName: vName[v], itemId: i, itemName: iName[i], price: p }))),
+    prices: sys(priceSpec.map(([v, i, brand, p]) => ({ id: lineKey(v, i, brand), vendorId: v, vendorName: vName[v], itemId: i, itemName: iName[i], brand, price: p }))),
     pos: sys(poRows), poLines: sys(lineRows), receipts: sys(receiptRows), payments: sys(paymentRows), stock: sys(stockRows),
     log: logRows,
   };

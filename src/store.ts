@@ -3,7 +3,8 @@ import { AppState, HistoryEntry, Item, PoLine, PurchaseOrder, ReceiptLine, RoleI
 import { Flat, diff, emptyFlat, flatten, nest } from './model';
 import { Applied, ApiError, api, isConnected } from './api';
 import { applyConfig, cfg } from './config';
-import { advanceAvailable, approvalRoute, computeReceipt, dueDateFor, itemOf, poValue, receiptBalance, receivedQty, stockOnHand, vendorOf } from './domain';
+import { advanceAvailable, approvalRoute, computeReceipt, dueDateFor, itemOf, lineName, poValue, receiptBalance, receivedQty, sameLine, stockOnHand, vendorOf } from './domain';
+import { normBrand } from './shared/keys';
 import { UploadFile, fileToUpload, round2, today, uid } from './utils';
 import { DATA_TABLES } from './shared/schema';
 
@@ -187,10 +188,11 @@ export const actions = {
       const vendor = vendorOf(s, input.vendorId);
       if (!vendor) throw new Error('Select a vendor');
       const lines = input.lines.filter(l => l.qty > 0).map(l => {
-        const vi = vendor.items.find(i => i.itemId === l.itemId);
-        if (!vi) throw new Error('Item is not on this vendor\'s price list');
-        const old = s.pos.find(p => p.id === id)?.lines.find(x => x.itemId === l.itemId);
-        return { ...(old ?? {}), itemId: l.itemId, qty: l.qty, price: old ? old.price : vi.price }; // price is not editable
+        const brand = normBrand(l.brand);
+        const vi = vendor.items.find(i => sameLine(i, { itemId: l.itemId, brand }));
+        if (!vi) throw new Error('This item / brand is not on the vendor\'s price list');
+        const old = s.pos.find(p => p.id === id)?.lines.find(x => sameLine(x, { itemId: l.itemId, brand }));
+        return { ...(old ?? {}), itemId: l.itemId, brand: vi.brand ? vi.brand : brand, qty: l.qty, price: old ? old.price : vi.price }; // price is not editable
       });
       if (!lines.length) throw new Error('Add at least one item with a quantity');
       if (input.advanceRequired && !(input.advanceAmount > 0)) throw new Error('Enter the advance amount');
@@ -253,7 +255,7 @@ export const actions = {
   /** Goods receipt = stock in. PO quantity edits are honoured only when the invoice does not match the PO. */
   createReceipt: (input: {
     poId: string; invoiceNo: string; invoiceDate: string; receivedDate: string; invoiceTotal: number; invoiceFile?: string;
-    lines: { itemId: string; qty: number; taxRate: number; poQty?: number }[];
+    lines: { itemId: string; brand: string; qty: number; taxRate: number; poQty?: number }[];
   }) => {
     let note = `Goods received, invoice ${input.invoiceNo.trim()}`;
     return mutate('receipt.create', () => note, s => {
@@ -268,14 +270,14 @@ export const actions = {
       if (!picked.length) throw new Error('Select the items received');
       const lines: ReceiptLine[] = [];
       for (const l of picked) {
-        const pl = po.lines.find(x => x.itemId === l.itemId);
-        if (!pl) throw new Error('Item is not on this PO');
+        const pl = po.lines.find(x => sameLine(x, l));
+        if (!pl) throw new Error('This item / brand is not on the PO');
         if (l.poQty !== undefined && l.poQty !== pl.qty) {
-          note += `; PO quantity of ${itemOf(s, l.itemId)?.name ?? l.itemId} changed ${pl.qty} → ${l.poQty} (invoice mismatch)`;
+          note += `; PO quantity of ${lineName(s, pl)} changed ${pl.qty} → ${l.poQty} (invoice mismatch)`;
           pl.qty = l.poQty;
         }
-        if (l.qty > pl.qty - receivedQty(s, po.id, l.itemId) + 1e-9) throw new Error('Received quantity is more than the pending PO quantity');
-        lines.push({ itemId: l.itemId, qty: l.qty, price: pl.price, taxRate: l.taxRate });
+        if (l.qty > pl.qty - receivedQty(s, po.id, l.itemId, pl.brand) + 1e-9) throw new Error('Received quantity is more than the pending PO quantity');
+        lines.push({ itemId: l.itemId, brand: pl.brand, qty: l.qty, price: pl.price, taxRate: l.taxRate });
       }
       const t = computeReceipt(lines);
       if (Math.abs(t.grandTotal - input.invoiceTotal) > cfg.tolerance) throw new Error('Grand total does not match the invoice total');
@@ -315,31 +317,31 @@ export const actions = {
   }),
 
   // ---- stock out / adjustments
-  issueStock: (itemId: string, qty: number, toDept: string, note: string, date: string) => mutate('stock.issue', `Issued ${qty} to ${toDept}`, s => {
+  issueStock: (itemId: string, brand: string, qty: number, toDept: string, note: string, date: string) => mutate('stock.issue', `Issued ${qty} to ${toDept}`, s => {
     const item = itemOf(s, itemId);
     if (!item) throw new Error('Select an item');
     if (!(qty > 0)) throw new Error('Enter the quantity');
     if (!toDept.trim()) throw new Error('Enter who the stock is issued to (department / purpose)');
-    const have = stockOnHand(s, itemId);
-    if (qty > have) throw new Error(`Only ${have} ${item.unit} of ${item.name} in stock`);
-    s.stock.push({ id: uid(), date, itemId, type: 'OUT', qty, toDept: toDept.trim(), note: note.trim() });
+    const have = stockOnHand(s, itemId, brand);
+    if (qty > have) throw new Error(`Only ${have} ${item.unit} of ${lineName(s, { itemId, brand })} in stock`);
+    s.stock.push({ id: uid(), date, itemId, brand: normBrand(brand), type: 'OUT', qty, toDept: toDept.trim(), note: note.trim() });
   }),
-  adjustStock: (itemId: string, qty: number, note: string, date: string) => mutate('stock.adjust', `Stock adjusted by ${qty}`, s => {
+  adjustStock: (itemId: string, brand: string, qty: number, note: string, date: string) => mutate('stock.adjust', `Stock adjusted by ${qty}`, s => {
     if (!itemOf(s, itemId)) throw new Error('Select an item');
     if (!qty) throw new Error('Enter the quantity (use a minus sign to reduce stock)');
     if (!note.trim()) throw new Error('Give a reason for the adjustment');
-    s.stock.push({ id: uid(), date, itemId, type: 'ADJUST', qty, toDept: '', note: note.trim() });
+    s.stock.push({ id: uid(), date, itemId, brand: normBrand(brand), type: 'ADJUST', qty, toDept: '', note: note.trim() });
   }),
 
   // ---- price queries (on PO lines)
-  raiseQuery: (poId: string, itemId: string, noteText: string) => mutate('query.raise', 'Price query raised to Admin: ' + noteText, s => {
-    const line = findPO(s, poId).lines.find(l => l.itemId === itemId);
+  raiseQuery: (poId: string, line0: { itemId: string; brand: string }, noteText: string) => mutate('query.raise', 'Price query raised to Admin: ' + noteText, s => {
+    const line = findPO(s, poId).lines.find(l => sameLine(l, line0));
     if (!line) throw new Error('Item is not on this PO');
     line.queryNote = noteText;
     line.queryStatus = 'Open';
   }),
-  resolveQuery: (poId: string, itemId: string) => mutate('master.manage', 'Price query resolved by Admin', s => {
-    const line = findPO(s, poId).lines.find(l => l.itemId === itemId);
+  resolveQuery: (poId: string, line0: { itemId: string; brand: string }) => mutate('master.manage', 'Price query resolved by Admin', s => {
+    const line = findPO(s, poId).lines.find(l => sameLine(l, line0));
     if (line) line.queryStatus = 'Resolved';
   }),
 
@@ -354,18 +356,19 @@ export const actions = {
     if (!v.name.trim()) throw new Error('Enter the vendor name');
     if (v.id) {
       const cur = s.vendors.find(x => x.id === v.id)!;
-      const items = v.items.map(i => ({ ...(cur.items.find(c => c.itemId === i.itemId) ?? {}), itemId: i.itemId, price: i.price })); // keep row versions
+      const items = v.items.map(i => ({ ...(cur.items.find(c => sameLine(c, i)) ?? {}), itemId: i.itemId, brand: normBrand(i.brand), price: i.price })); // keep row versions
       Object.assign(cur, v, { items });
     } else s.vendors.push({ ...v, id: uid() } as Vendor);
   }),
-  /** Set (or with undefined, remove) one vendor's price for one item. */
-  setPrice: (vendorId: string, itemId: string, price: number | undefined) => mutate('master.manage', '', s => {
+  /** Set (or with undefined, remove) one vendor's price for one item in one brand. */
+  setPrice: (vendorId: string, itemId: string, brand: string, price: number | undefined) => mutate('master.manage', '', s => {
     const v = vendorOf(s, vendorId);
     if (!v) throw new Error('Unknown vendor');
-    if (price === undefined) { v.items = v.items.filter(i => i.itemId !== itemId); return; }
+    const b = normBrand(brand);
+    if (price === undefined) { v.items = v.items.filter(i => !sameLine(i, { itemId, brand: b })); return; }
     if (!(price >= 0)) throw new Error('Enter a valid price');
-    const cur = v.items.find(i => i.itemId === itemId);
-    if (cur) cur.price = price; else v.items.push({ itemId, price });
+    const cur = v.items.find(i => sameLine(i, { itemId, brand: b }));
+    if (cur) cur.price = price; else v.items.push({ itemId, brand: b, price });
   }),
 };
 
