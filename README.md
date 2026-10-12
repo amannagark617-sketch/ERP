@@ -120,7 +120,7 @@ Nothing real is lost – just start clean. Easiest (keeps your Web app URL):
 | **Change a price** | Same screen → change the number → Save. Open POs keep the price they were raised with; new POs use the new price |
 | **Add / remove a vendor** | Vendors → New / Edit (set *Active = No* to retire) |
 | **Get the PO as a PDF** | Open the PO → **⬇ Download PO (PDF)**. Works at every stage; until the PO is approved the PDF carries a red *DRAFT – not for issue* watermark. When you press **Mark sent**, the exact PDF is also saved in Drive and linked on the PO ("PO copy sent") |
-| **Change the letterhead details** (address, GSTIN, phone, terms printed on every PO) | `Settings` tab → `CompanyLegalName`, `CompanyAddress` (use `|` for a new line), `CompanyGSTIN`, `CompanyCIN`, `CompanyPhone`, `CompanyEmail`, `CompanyWebsite`, `DeliverTo`, `PoSignatory`, `PoTerms` (use `|` between points) |
+| **Fill in / change the letterhead details** (address, GSTIN, phone, terms printed on every PO) | `Settings` tab → `CompanyLegalName`, `CompanyAddress` (use `|` for a new line), `CompanyGSTIN`, `CompanyCIN`, `CompanyPhone`, `CompanyEmail`, `CompanyWebsite`, `DeliverTo`, `PoSignatory`, `PoTerms` (use `|` between points) |
 | **Receive goods** | Goods Receipt → pick the PO → enter invoice → saved as **Stock IN** automatically |
 | **Issue material to production** | Stock → **Issue stock** (item, qty, department/purpose). Can't issue more than is on hand |
 | **Fix a stock count** | Stock → **Adjust stock** (needs a reason; only roles with *Adjust Stock*) |
@@ -136,7 +136,7 @@ Nothing real is lost – just start clean. Easiest (keeps your Web app URL):
 A4, one or more pages, built in the browser (nothing leaves your Google account): letterhead with the Little Nap logo and company details,
 vendor box (GSTIN, PAN, MSME/Udyam), order details (delivery date, payment terms, advance, deliver-to), items table in Indian number format (₹ 4,80,000.00),
 **amount in words**, terms & conditions, who prepared and who approved it (with dates), signature line, and a footer with CIN/GSTIN and page numbers on every page.
-Look and feel follow the HR screening app: white page, charcoal text, the logo's red as the single accent, **Inter** font.
+Company details come from the `Settings` tab and start **blank** (only the name "Little Nap Recliners" is pre-filled) – type your own address, GSTIN, phone and email there once. Look and feel follow the HR screening app: white page, charcoal text, the logo's red as the single accent, **Inter** font.
 To change the logo, replace `public/logo.png` (any PNG on a white or transparent background); the fonts are in `public/fonts/` (Inter, SIL Open Font License).
 Emailing/WhatsApp-ing the PDF is still a manual attach (a browser can't attach files to `mailto:`); an automatic "send from the app" option would need Gmail permission in the script – ask if you want it.
 

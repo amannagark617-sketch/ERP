@@ -637,14 +637,14 @@ var Core = (() => {
         { key: "TaxRates", value: "0,5,18", description: "Tax rates offered at goods receipt (%)" },
         { key: "InvoiceTolerance", value: "1", description: "Allowed difference (Rs) between system total and invoice total" },
         { key: "RecentMonths", value: "6", description: 'The app loads settled POs/stock from the last N months (open items always load). "Load full history" in the app shows everything' },
-        { key: "CompanyLegalName", value: "Little Nap Subhav India Pvt. Ltd.", description: "Printed on the PO letterhead and footer" },
-        { key: "CompanyAddress", value: "Shree Shubham Logistics Park, 27-28, AB Road Bypass|Dewas, Indore, Madhya Pradesh 455001, India", description: "Letterhead address. Use | for a new line" },
-        { key: "CompanyGSTIN", value: "23AAFCL2047L1ZK", description: "Printed on the PO" },
-        { key: "CompanyCIN", value: "U36999MP2022PTC063150", description: "Printed on the PO footer" },
-        { key: "CompanyPhone", value: "+91 62320 05722", description: "Letterhead phone" },
-        { key: "CompanyEmail", value: "inquiry@lnsindia.co.in", description: "Letterhead email" },
-        { key: "CompanyWebsite", value: "www.lnsindia.co.in", description: "Letterhead website" },
-        { key: "DeliverTo", value: "Little Nap Subhav Manufacturing Plant, Shree Shubham Logistics Park, 27-28, AB Road Bypass, Dewas, Madhya Pradesh 455001", description: 'The "Deliver to" address on the PO' },
+        { key: "CompanyLegalName", value: "Little Nap Recliners", description: "Company name printed on the PO. Type your registered legal name here" },
+        { key: "CompanyAddress", value: "", description: "Fill in: your address on the PO letterhead. Use | for a new line" },
+        { key: "CompanyGSTIN", value: "", description: "Fill in: your GSTIN (printed on the PO)" },
+        { key: "CompanyCIN", value: "", description: "Optional: CIN (printed in the PO footer)" },
+        { key: "CompanyPhone", value: "", description: "Fill in: phone number on the letterhead" },
+        { key: "CompanyEmail", value: "", description: "Fill in: email on the letterhead" },
+        { key: "CompanyWebsite", value: "", description: "Optional: website on the letterhead" },
+        { key: "DeliverTo", value: "", description: 'Optional: "Deliver to" address on the PO (if blank, the company address is used)' },
         { key: "PoSignatory", value: "Authorised Signatory", description: "Text under the signature line on the PO" },
         { key: "PoTerms", value: "Please quote the PO number on every invoice, delivery challan and correspondence.|Goods are subject to inspection and acceptance at our factory. Rejected goods will be returned or replaced at the supplier's cost.|Invoices must carry GSTIN, HSN code, PO number and the vendor's bank details. Payment is released after invoice acceptance, as per the payment terms above.|MSME suppliers are paid within the period required by law (maximum 45 days).", description: "Standard terms printed on every PO. Use | between points" },
         { key: "DriveFolderId", value: "", description: "Drive folder for uploads (filled in automatically)" }
@@ -1784,6 +1784,16 @@ var Core = (() => {
       return { ok: false, error: "Server error: " + ((e == null ? void 0 : e.message) || e), code: "SERVER" };
     }
   }
+  var WRONG_DEFAULTS = {
+    CompanyLegalName: ["Little Nap Subhav India Pvt. Ltd.", "Little Nap Recliners"],
+    CompanyAddress: ["Shree Shubham Logistics Park, 27-28, AB Road Bypass|Dewas, Indore, Madhya Pradesh 455001, India", ""],
+    CompanyGSTIN: ["23AAFCL2047L1ZK", ""],
+    CompanyCIN: ["U36999MP2022PTC063150", ""],
+    CompanyPhone: ["+91 62320 05722", ""],
+    CompanyEmail: ["inquiry@lnsindia.co.in", ""],
+    CompanyWebsite: ["www.lnsindia.co.in", ""],
+    DeliverTo: ["Little Nap Subhav Manufacturing Plant, Shree Shubham Logistics Park, 27-28, AB Road Bypass, Dewas, Madhya Pradesh 455001", ""]
+  };
   function setup(host, extra) {
     const keys = Object.keys(TABLES);
     for (const k of keys) {
@@ -1801,6 +1811,10 @@ var Core = (() => {
     if (extra) fill(extra);
     fill(configSeed());
     for (const s of configSeed().settings) if (!db.find("settings", s.key)) db.put("settings", s);
+    for (const key of Object.keys(WRONG_DEFAULTS)) {
+      const row = db.find("settings", key);
+      if (row && row.value === WRONG_DEFAULTS[key][0]) db.put("settings", { ...row, value: WRONG_DEFAULTS[key][1] });
+    }
     return "Setup complete.";
   }
   function loadSample(host, today) {

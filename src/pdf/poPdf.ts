@@ -58,10 +58,10 @@ export function buildPoPdf(d: PoDoc, a: PdfAssets): Uint8Array {
     font('bold', 10.5); doc.text(d.company.legalName, W - MX, y, { align: 'right' });
     font('normal', 8, MUTED);
     d.company.addressLines.forEach(l => { y += 4.1; doc.text(l, W - MX, y, { align: 'right' }); });
-    y += 4.3; font('normal', 7.6, INK);
-    doc.text([d.company.gstin && `GSTIN ${d.company.gstin}`, d.company.cin && `CIN ${d.company.cin}`].filter(Boolean).join('   ·   '), W - MX, y, { align: 'right' });
-    y += 4; font('normal', 7.6, MUTED);
-    doc.text([d.company.phone, d.company.email, d.company.website].filter(Boolean).join('   ·   '), W - MX, y, { align: 'right' });
+    const regLine = [d.company.gstin && `GSTIN ${d.company.gstin}`, d.company.cin && `CIN ${d.company.cin}`].filter(Boolean).join('   ·   ');
+    const contactLine = [d.company.phone, d.company.email, d.company.website].filter(Boolean).join('   ·   ');
+    if (regLine) { y += 4.3; font('normal', 7.6, INK); doc.text(regLine, W - MX, y, { align: 'right' }); }
+    if (contactLine) { y += 4; font('normal', 7.6, MUTED); doc.text(contactLine, W - MX, y, { align: 'right' }); }
     const ry = Math.max(11 + logoH(40), y) + 4;
     rule(ry, INK, 0.35);
     rule(ry, RED, 1.1, MX, MX + 30);
@@ -101,7 +101,7 @@ export function buildPoPdf(d: PoDoc, a: PdfAssets): Uint8Array {
     ['Prepared by', [d.po.preparedBy, d.po.department && `(${d.po.department})`].filter(Boolean).join(' ')],
     ['Deliver to', d.po.deliverTo],
   ];
-  const rows = details.map(([k, v]) => ({ k, v: lines(v || '—', bw - 2 * pad - 30) }));
+  const rows = details.filter(([k, v]) => k !== 'Deliver to' || v).map(([k, v]) => ({ k, v: lines(v || '—', bw - 2 * pad - 30) }));
   const detailH = rows.reduce((h, r) => h + Math.max(1, r.v.length) * 4.1 + 1.2, 0);
   const vendorH = vendorLines.length * 4.5;
   const boxH = Math.max(vendorH, detailH) + 11;
