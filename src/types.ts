@@ -49,6 +49,8 @@ export interface PurchaseOrder extends Sys {
   step: number;
   sentVia?: 'Email' | 'WhatsApp' | '';
   sentTo?: string;
+  /** The PDF that was sent to the vendor (Drive file id) */
+  poFile?: string;
   createdBy: string;
   department: string;
 }

@@ -19,6 +19,7 @@ export function Setup() {
   };
   return (
     <div className="authbox">
+      <img className="logo" src={import.meta.env.BASE_URL + 'logo.png'} alt="Little Nap Recliners" />
       <h2>Connect to your Google Sheet</h2>
       <p className="mut">Paste the <b>Web app URL</b> you got when deploying the Apps Script (see README → "Connect Google Sheets").</p>
       <Field label="Web app URL"><input value={url} onChange={e => setUrl(e.target.value)} placeholder="https://script.google.com/macros/s/…/exec" /></Field>
@@ -42,7 +43,8 @@ export function Login({ notice }: { notice?: string }) {
   };
   return (
     <div className="authbox">
-      <h2>Little Nap ERP</h2>
+      <img className="logo" src={import.meta.env.BASE_URL + 'logo.png'} alt="Little Nap Recliners" />
+      <h2>Purchase-to-Inventory</h2>
       <p className="mut">Sign in with your Login ID and password.</p>
       <Field label="Login ID"><input value={id} autoFocus autoCapitalize="off" onChange={e => setId(e.target.value)} onKeyDown={e => e.key === 'Enter' && submit()} /></Field>
       <Field label="Password"><input type="password" value={pw} onChange={e => setPw(e.target.value)} onKeyDown={e => e.key === 'Enter' && submit()} /></Field>

@@ -99,6 +99,9 @@ Never run that function once real data is in.
 2. Stock already in the factory? **Stock → Adjust stock** (reason "Opening stock") – one line per item. Bills from before the app? **Accounts → Add an old pending balance**.
 3. Log in as Purchase → **New PO**. The flow is live.
 
+### Updating an existing install to a newer version
+Paste the new `Code.gs` over the old one, run **`setup`** (it only *adds* what is missing: new Settings rows such as the letterhead details, new columns such as *PO PDF sent*; it never changes your data), then **Deploy → Manage deployments → ✏️ → New version → Deploy**. Re-deploy the app (AI Studio / `dist/`) too when the screens changed.
+
 ### Already ran the earlier version (two spreadsheets)?
 Nothing real is lost – just start clean. Easiest (keeps your Web app URL):
 1. Open the main spreadsheet and **delete every tab** except one empty tab. Delete the second "Access" spreadsheet from Drive.
@@ -116,6 +119,8 @@ Nothing real is lost – just start clean. Easiest (keeps your Web app URL):
 | **Five vendors sell the same item at different prices** | Give each vendor a price for that item (Items & Prices → Edit → *Add a vendor*, or Vendors → Edit → *Add an item*, or a row per vendor in the `Prices` tab). The item list shows them **cheapest first**; on a PO the form warns "cheaper elsewhere" |
 | **Change a price** | Same screen → change the number → Save. Open POs keep the price they were raised with; new POs use the new price |
 | **Add / remove a vendor** | Vendors → New / Edit (set *Active = No* to retire) |
+| **Get the PO as a PDF** | Open the PO → **⬇ Download PO (PDF)**. Works at every stage; until the PO is approved the PDF carries a red *DRAFT – not for issue* watermark. When you press **Mark sent**, the exact PDF is also saved in Drive and linked on the PO ("PO copy sent") |
+| **Change the letterhead details** (address, GSTIN, phone, terms printed on every PO) | `Settings` tab → `CompanyLegalName`, `CompanyAddress` (use `|` for a new line), `CompanyGSTIN`, `CompanyCIN`, `CompanyPhone`, `CompanyEmail`, `CompanyWebsite`, `DeliverTo`, `PoSignatory`, `PoTerms` (use `|` between points) |
 | **Receive goods** | Goods Receipt → pick the PO → enter invoice → saved as **Stock IN** automatically |
 | **Issue material to production** | Stock → **Issue stock** (item, qty, department/purpose). Can't issue more than is on hand |
 | **Fix a stock count** | Stock → **Adjust stock** (needs a reason; only roles with *Adjust Stock*) |
@@ -125,6 +130,15 @@ Nothing real is lost – just start clean. Easiest (keeps your Web app URL):
 | **See old settled POs** | Top bar → **Load full history** |
 
 ---
+
+## The PO document
+
+A4, one or more pages, built in the browser (nothing leaves your Google account): letterhead with the Little Nap logo and company details,
+vendor box (GSTIN, PAN, MSME/Udyam), order details (delivery date, payment terms, advance, deliver-to), items table in Indian number format (₹ 4,80,000.00),
+**amount in words**, terms & conditions, who prepared and who approved it (with dates), signature line, and a footer with CIN/GSTIN and page numbers on every page.
+Look and feel follow the HR screening app: white page, charcoal text, the logo's red as the single accent, **Inter** font.
+To change the logo, replace `public/logo.png` (any PNG on a white or transparent background); the fonts are in `public/fonts/` (Inter, SIL Open Font License).
+Emailing/WhatsApp-ing the PDF is still a manual attach (a browser can't attach files to `mailto:`); an automatic "send from the app" option would need Gmail permission in the script – ask if you want it.
 
 ## Built to run for years without changes
 

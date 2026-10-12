@@ -239,7 +239,7 @@ export const actions = {
       po.advanceStatus = fully ? 'Fully Paid' : 'Advance Paid';
     }),
 
-  sendToVendor: (id: string, via: 'Email' | 'WhatsApp') => mutate('po.send', `Sent to vendor via ${via}`, s => {
+  sendToVendor: (id: string, via: 'Email' | 'WhatsApp', poFile?: string) => mutate('po.send', `Sent to vendor via ${via}`, s => {
     const po = findPO(s, id);
     const v = vendorOf(s, po.vendorId)!;
     if (po.status !== 'Approved') throw new Error('PO is not approved');
@@ -247,6 +247,7 @@ export const actions = {
     po.status = 'Sent to Vendor';
     po.sentVia = via;
     po.sentTo = via === 'Email' ? v.email : v.whatsapp;
+    if (poFile) po.poFile = poFile;
   }),
 
   /** Goods receipt = stock in. PO quantity edits are honoured only when the invoice does not match the PO. */

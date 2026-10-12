@@ -7,6 +7,7 @@ export const cfg = {
   taxRates: [0, 5, 18] as number[],
   tolerance: 1,
   approvers: [] as Approver[],
+  settings: {} as Record<string, string>,
 };
 
 export function applyConfig(settings: Record<string, string>, approvers: Approver[]) {
@@ -16,4 +17,5 @@ export function applyConfig(settings: Record<string, string>, approvers: Approve
   cfg.taxRates = rates.length ? rates : [0, 5, 18];
   cfg.tolerance = settings.InvoiceTolerance !== undefined && settings.InvoiceTolerance !== '' ? Number(settings.InvoiceTolerance) : 1;
   cfg.approvers = approvers;
+  cfg.settings = settings;
 }

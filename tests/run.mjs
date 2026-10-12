@@ -355,4 +355,39 @@ await test('sample data loads into an empty system, is consistent, and works wit
   assert.match(M.loadSample(h, TODAY), /Sample data loaded/, 'and it can be loaded again');
 });
 
+console.log('PO letterhead settings & archived PDF');
+await test('company details for the PO letterhead are in Settings; re-running setup adds missing ones without touching existing values', () => {
+  const h = M.createMemHost();
+  M.setup(h);
+  const keys = h.read('Settings').map(r => r.Setting);
+  for (const k of ['CompanyLegalName', 'CompanyAddress', 'CompanyGSTIN', 'CompanyCIN', 'CompanyPhone', 'CompanyEmail', 'CompanyWebsite', 'DeliverTo', 'PoSignatory', 'PoTerms']) assert.ok(keys.includes(k), k);
+  // an older sheet that lacks the new rows, and where the owner has customised one value
+  const gst = h.read('Settings').find(r => r.Setting === 'CompanyGSTIN');
+  h.remove('Settings', gst.__row);
+  const nm = h.read('Settings').find(r => r.Setting === 'CompanyLegalName');
+  h.update('Settings', nm.__row, { Value: 'My Edited Name Pvt Ltd' });
+  M.setup(h);
+  const after = Object.fromEntries(h.read('Settings').map(r => [r.Setting, r.Value]));
+  assert.equal(after.CompanyGSTIN, '23AAFCL2047L1ZK', 'missing row restored');
+  assert.equal(after.CompanyLegalName, 'My Edited Name Pvt Ltd', 'existing value untouched');
+  h.update('Users', h.read('Users')[0].__row, { Password: 'Pw-123456' });
+  const tk = M.handle(h, { action: 'login', loginId: 'admin', password: 'Pw-123456' }).token;
+  const cfg = M.handle(h, { action: 'bootstrap', token: tk }).config.settings;
+  assert.equal(cfg.CompanyLegalName, 'My Edited Name Pvt Ltd'); assert.ok(cfg.PoTerms.includes('|'));
+});
+await test('the PDF that was sent is stored on the PO (po.send may set it, nothing else about the PO changes)', () => {
+  const b = boot('navneet');
+  const po = b.data.pos.find(p => p.id === 'pv4');
+  // pv4 (from the earlier test) is a draft; push it through approval + send using the real rules
+  const ap = (u, name, row) => commit(u, name, [up('pos', row)], '');
+  let r = ap('navneet', 'po.submit', { ...po, status: 'Pending Factory Head', route: 'Factory Head', step: 0 }); assert.ok(r.ok, r.error);
+  r = ap('factoryhead', 'po.approve', { ...r.applied[0].row, status: 'Approved', step: 1, advanceStatus: 'Not Required' }); assert.ok(r.ok, r.error);
+  const row = r.applied[0].row;
+  assert.match(ap('navneet', 'po.send', { ...row, status: 'Sent to Vendor', sentVia: 'Email', sentTo: 'x', terms: 'changed!' }).error, /Only sending details/);
+  r = ap('navneet', 'po.send', { ...row, status: 'Sent to Vendor', sentVia: 'Email', sentTo: 'x', poFile: 'file-abc' });
+  assert.ok(r.ok, r.error);
+  assert.equal(boot('navneet').data.pos.find(p => p.id === 'pv4').poFile, 'file-abc');
+  assert.equal(sheetRow('PurchaseOrders', x => x['PO Key'] === 'pv4')['PO PDF sent (Drive ID)'], 'file-abc');
+});
+
 console.log(`\n${passed} passed`);

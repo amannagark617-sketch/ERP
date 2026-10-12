@@ -83,7 +83,8 @@ export default function App() {
   return (
     <>
       <div className="topbar">
-        <h1>{cfg.company} · Purchase-to-Inventory</h1>
+        <img className="logo" src={import.meta.env.BASE_URL + 'logo.png'} alt={cfg.company} />
+        <h1>{cfg.company}<small>Purchase-to-Inventory</small></h1>
         <span className="spacer" />
         <span className="who">{s.user.name} · {s.user.role}{s.user.department ? ` · ${s.user.department}` : ''} · L{s.user.level}</span>
         <button className="btn sm" title="Reload from the Google Sheet" onClick={() => run(reload)}>{s.busy ? 'Saving…' : '↻ Refresh'}</button>

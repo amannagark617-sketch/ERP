@@ -662,6 +662,8 @@ export function setup(host: Host, extra?: Partial<Record<TableKey, any[]>>): str
   };
   if (extra) fill(extra);
   fill(configSeed());
+  // An older sheet may lack newer Settings rows: add the missing ones (never touching existing values)
+  for (const s of configSeed().settings!) if (!db.find('settings', s.key)) db.put('settings', s);
   return 'Setup complete.';
 }
 

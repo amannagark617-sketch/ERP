@@ -77,7 +77,7 @@ export const TABLES = {
       c('poNo', 'PO No'), c('date', 'PO Date', 'date'), c('vendorName', 'Vendor'), c('status', 'Status'), c('advanceStatus', 'Advance Status'),
       c('expectedDate', 'Expected Delivery', 'date'), c('advanceRequired', 'Advance Required (Yes/No)', 'bool'), c('advanceAmount', 'Advance Amount', 'num'),
       c('terms', 'Terms & Conditions'), c('route', 'Approval Route'), c('step', 'Approval Step', 'num'),
-      c('sentVia', 'Sent Via'), c('sentTo', 'Sent To'), c('createdBy', 'Created By'), c('department', 'Department'),
+      c('sentVia', 'Sent Via'), c('sentTo', 'Sent To'), c('poFile', 'PO PDF sent (Drive ID)'), c('createdBy', 'Created By'), c('department', 'Department'),
       c('vendorId', 'Vendor ID'), c('id', 'PO Key'),
     ],
   },

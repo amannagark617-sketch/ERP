@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { actions, fetchHistory, useAuth, useStore } from '../store';
+import { actions, fetchHistory, uploadFile, useAuth, useStore } from '../store';
+import { downloadPdf, makePoPdf } from '../pdf/makePo';
 import {
   advancePaid, displayStatus, invoicesOf, isDelayed, itemName, outstanding, paidTotal, pendingQty, poValue,
   receiptBalance, receiptPaid, receivedQty, receivedValue, vendorOf,
@@ -14,6 +15,7 @@ export default function PoDetail({ id }: { id: string }) {
   const [remark, setRemark] = useState('');
   const [paying, setPaying] = useState(false);
   const [history, setHistory] = useState<HistoryEntry[] | null>(null);
+  const [pdfBusy, setPdfBusy] = useState(false);
   const po = s.pos.find(p => p.id === id);
   const version = po?._v;
   // The history lives in the Log tab; fetch it for this PO and again whenever the PO changes.
@@ -25,13 +27,31 @@ export default function PoDetail({ id }: { id: string }) {
   const poText = `Purchase Order ${po.poNo} – Little Nap Recliners\n` +
     po.lines.map(l => `${itemName(s, l.itemId)}: ${l.qty} x ${l.price}`).join('\n') + `\nTotal: ${poValue(po)}\nExpected delivery: ${po.expectedDate}\nTerms: ${po.terms}`;
   const queries = po.lines.filter(l => l.queryNote);
+  /** Save the exact PDF that goes out (best effort), then record the PO as sent. */
+  const markSent = async (via: 'Email' | 'WhatsApp') => {
+    setPdfBusy(true);
+    let fileId: string | undefined;
+    try {
+      const f = await makePoPdf(s, po);
+      fileId = await uploadFile(new File([f.data as BlobPart], f.filename, { type: 'application/pdf' }), po.poNo);
+    } catch (e) { console.warn('Could not archive the PO PDF', e); }
+    await run(() => actions.sendToVendor(po.id, via, fileId));
+    setPdfBusy(false);
+  };
   const pendingTotal = po.lines.reduce((a, l) => a + pendingQty(s, po, l.itemId), 0);
 
   return (
     <>
       <div className="row" style={{ justifyContent: 'space-between', marginBottom: 12 }}>
         <h2 style={{ margin: 0 }}>{po.poNo || 'New PO'} <Badge>{displayStatus(s, po)}</Badge> {isDelayed(s, po) && <Badge>Delay</Badge>} {po.advanceRequired && po.advanceStatus !== 'Not Required' && <Badge>{po.advanceStatus}</Badge>}</h2>
-        <Link to="/pos">← All POs</Link>
+        <div className="row">
+          <button className="btn primary" disabled={pdfBusy} onClick={async () => {
+            setPdfBusy(true);
+            await run(async () => { const f = await makePoPdf(s, po); downloadPdf(f.data, f.filename); });
+            setPdfBusy(false);
+          }}>{pdfBusy ? 'Preparing PDF…' : po.status === 'Approved' || sent ? '⬇ Download PO (PDF)' : '⬇ Download draft PDF'}</button>
+          <Link to="/pos">← All POs</Link>
+        </div>
       </div>
 
       <Card title="Details">
@@ -39,7 +59,7 @@ export default function PoDetail({ id }: { id: string }) {
           <p><b>Vendor:</b> {vendor.name} {vendor.msme && <Badge>MSME</Badge>}<br /><span className="mut">{vendor.contact} · {vendor.email} · {vendor.whatsapp}</span>
             {vendor.msme && <><br /><span className="mut">Udyam: {vendor.udyamNo || '—'} ({vendor.msmeType || 'type not set'})</span></>}<br /><span className="mut">GSTIN {vendor.gstin || '—'} · {vendor.city}</span></p>
           <p><b>PO date:</b> {fmtDate(po.date)}<br /><b>Expected delivery:</b> {fmtDate(po.expectedDate)}</p>
-          <p><b>Created by:</b> {po.createdBy} ({po.department})<br /><b>Advance:</b> {po.advanceRequired ? inr(po.advanceAmount) : 'Not required'}<br /><b>Approval route:</b> {po.route.length ? po.route.join(' → ') : '—'}<br />{po.sentVia && <><b>Sent via:</b> {po.sentVia} to {po.sentTo}</>}</p>
+          <p><b>Created by:</b> {po.createdBy} ({po.department})<br /><b>Advance:</b> {po.advanceRequired ? inr(po.advanceAmount) : 'Not required'}<br /><b>Approval route:</b> {po.route.length ? po.route.join(' → ') : '—'}<br />{po.sentVia && <><b>Sent via:</b> {po.sentVia} to {po.sentTo}</>}{po.poFile && <><br /><b>PO copy sent:</b> <FileLink id={po.poFile} label="Open PDF" /></>}</p>
         </div>
         <p><b>Terms &amp; conditions:</b> {po.terms || <span className="mut">None</span>}</p>
       </Card>
@@ -95,12 +115,12 @@ export default function PoDetail({ id }: { id: string }) {
         <Card title="Send PO to vendor">
           {po.advanceStatus === 'Requested' ? <div className="note">Waiting for Accounts to pay the advance before the PO can go to the vendor.</div> : (
             <>
-              <p className="mut">The PO is sent from your ID. Choose the channel; the message opens ready to send, then confirm.</p>
+              <p className="mut">1. <b>Download the PO (PDF)</b> using the button at the top. 2. Open the email / WhatsApp message below and attach the PDF. 3. Press <b>Mark sent</b> – a copy of the PDF is saved in Google Drive against this PO.</p>
               <div className="row">
-                <a className="btn" target="_blank" rel="noreferrer" href={`mailto:${vendor.email}?subject=${encodeURIComponent('Purchase Order ' + po.poNo)}&body=${encodeURIComponent(poText)}`}>Open email</a>
-                <button className="btn primary" onClick={() => run(() => actions.sendToVendor(po.id, 'Email'))}>Mark sent via Email</button>
+                <a className="btn" target="_blank" rel="noreferrer" href={`mailto:${vendor.email}?subject=${encodeURIComponent('Purchase Order ' + po.poNo)}&body=${encodeURIComponent(poText + '\n\n(PO PDF attached)')}`}>Open email</a>
+                <button className="btn primary" disabled={pdfBusy} onClick={() => markSent('Email')}>Mark sent via Email</button>
                 <a className="btn" target="_blank" rel="noreferrer" href={`https://wa.me/${vendor.whatsapp}?text=${encodeURIComponent(poText)}`}>Open WhatsApp</a>
-                <button className="btn primary" onClick={() => run(() => actions.sendToVendor(po.id, 'WhatsApp'))}>Mark sent via WhatsApp</button>
+                <button className="btn primary" disabled={pdfBusy} onClick={() => markSent('WhatsApp')}>Mark sent via WhatsApp</button>
               </div>
             </>
           )}
