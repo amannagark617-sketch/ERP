@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useRole, useStore } from '../store';
+import { useAuth, useStore } from '../store';
 import { displayStatus, isDelayed, isOpenPO, outstanding, poValue, totalPending, vendorOf } from '../domain';
 import { Badge, Card, Empty, Link } from '../ui';
 import { fmtDate, inr } from '../utils';
@@ -8,7 +8,7 @@ const TABS = ['All', 'Awaiting approval', 'Open', 'Delay / Pending', 'Closed'] a
 
 export default function PoList() {
   const s = useStore();
-  const role = useRole();
+  const { can } = useAuth();
   const [tab, setTab] = useState<(typeof TABS)[number]>('All');
   const rows = [...s.pos].reverse().filter(p => {
     const st = displayStatus(s, p);
@@ -22,7 +22,7 @@ export default function PoList() {
     <>
       <div className="row" style={{ justifyContent: 'space-between', marginBottom: 14 }}>
         <h2 style={{ margin: 0 }}>Purchase Orders</h2>
-        {role === 'Purchase' && <Link to="/pos/new" className="btn primary">+ New PO</Link>}
+        {can('po.save') && <Link to="/pos/new" className="btn primary">+ New PO</Link>}
       </div>
       <div className="row" style={{ marginBottom: 12 }}>
         {TABS.map(t => <button key={t} className={'btn sm' + (tab === t ? ' primary' : '')} onClick={() => setTab(t)}>{t}</button>)}
@@ -30,10 +30,10 @@ export default function PoList() {
       <Card>
         {rows.length === 0 ? <Empty>No purchase orders here.</Empty> : (
           <div className="tablewrap"><table>
-            <thead><tr><th>PO</th><th>Date</th><th>Vendor</th><th className="r">Value</th><th>Expected</th><th className="r">Pending qty</th><th>Status</th><th className="r">Outstanding</th></tr></thead>
+            <thead><tr><th>PO</th><th>Date</th><th>Vendor</th><th>Dept</th><th className="r">Value</th><th>Expected</th><th className="r">Pending qty</th><th>Status</th><th className="r">Outstanding</th></tr></thead>
             <tbody>{rows.map(p => (
               <tr key={p.id} className={isDelayed(s, p) ? 'hl' : ''}>
-                <td><Link to={`/pos/${p.id}`}>{p.poNo}</Link></td><td>{fmtDate(p.date)}</td><td>{vendorOf(s, p.vendorId)?.name}</td>
+                <td><Link to={`/pos/${p.id}`}>{p.poNo}</Link></td><td>{fmtDate(p.date)}</td><td>{vendorOf(s, p.vendorId)?.name}</td><td>{p.department}</td>
                 <td className="r">{inr(poValue(p))}</td><td>{fmtDate(p.expectedDate)}</td>
                 <td className="r">{p.status === 'Sent to Vendor' ? totalPending(s, p) : '—'}</td>
                 <td><Badge>{displayStatus(s, p)}</Badge> {isDelayed(s, p) && <Badge>Delay</Badge>}</td>

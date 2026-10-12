@@ -1,15 +1,17 @@
 import { useState } from 'react';
-import { actions, useRole, useStore } from '../store';
+import { actions, uploadFile, useAuth, useStore } from '../store';
 import { advanceAvailable, computeReceipt, itemName, pendingQty, receivedQty, vendorOf } from '../domain';
-import { Card, Field, Link, go, run } from '../ui';
+import { Card, Field, FileInput, Link, go, run } from '../ui';
+import { cfg } from '../config';
 import { inr, today } from '../utils';
-import { TaxRate } from '../types';
 
-interface Row { itemId: string; selected: boolean; qty: number; poQty: number; tax: TaxRate }
+interface Row { itemId: string; selected: boolean; qty: number; poQty: number; tax: number }
 
 export default function ReceiptForm({ poId }: { poId: string }) {
   const s = useStore();
-  const role = useRole();
+  const { can } = useAuth();
+  const [file, setFile] = useState<File>();
+  const [saving, setSaving] = useState(false);
   const po = s.pos.find(p => p.id === poId);
   const [invoiceNo, setInvoiceNo] = useState('');
   const [invoiceDate, setInvoiceDate] = useState(today());
@@ -17,11 +19,11 @@ export default function ReceiptForm({ poId }: { poId: string }) {
   const [invoiceTotal, setInvoiceTotal] = useState(0);
   const [mismatch, setMismatch] = useState(false);
   const [rows, setRows] = useState<Row[]>(() =>
-    (po?.lines ?? []).map(l => ({ itemId: l.itemId, selected: false, qty: pendingQty(s, po!, l.itemId), poQty: l.qty, tax: 18 })));
+    (po?.lines ?? []).map(l => ({ itemId: l.itemId, selected: false, qty: pendingQty(s, po!, l.itemId), poQty: l.qty, tax: cfg.taxRates.includes(18) ? 18 : cfg.taxRates[0] })));
   const [queryNote, setQueryNote] = useState('');
 
   if (!po) return <p>PO not found.</p>;
-  if (role !== 'Inventory') return <div className="note">Goods receipt is done by Inventory (Factory). Switch role at the top.</div>;
+  if (!can('receipt.create')) return <div className="note">Goods receipt is done by Inventory (Factory). Your role is not allowed to do this.</div>;
   if (po.status !== 'Sent to Vendor') return <div className="warn">This PO has not been sent to the vendor yet.</div>;
 
   const vendor = vendorOf(s, po.vendorId)!;
@@ -31,18 +33,23 @@ export default function ReceiptForm({ poId }: { poId: string }) {
   const totals = computeReceipt(picked.map(r => ({ qty: r.qty, price: price(r.itemId), taxRate: r.tax })));
   const advance = Math.min(totals.grandTotal, advanceAvailable(s, po.id));
   const diff = Math.round((totals.grandTotal - invoiceTotal) * 100) / 100;
-  const matches = Math.abs(diff) <= 1;
+  const matches = Math.abs(diff) <= cfg.tolerance;
 
-  const submit = () => {
-    if (run(() => actions.createReceipt({
-      poId: po.id, invoiceNo, invoiceDate, receivedDate, invoiceTotal,
-      lines: picked.map(r => ({ itemId: r.itemId, qty: r.qty, taxRate: r.tax, poQty: mismatch ? r.poQty : undefined })),
-    }))) go(`/pos/${po.id}`);
+  const submit = async () => {
+    setSaving(true);
+    const ok = await run(async () => {
+      const invoiceFile = await uploadFile(file, po.poNo);
+      await actions.createReceipt({
+        poId: po.id, invoiceNo, invoiceDate, receivedDate, invoiceTotal, invoiceFile,
+        lines: picked.map(r => ({ itemId: r.itemId, qty: r.qty, taxRate: r.tax, poQty: mismatch ? r.poQty : undefined })),
+      });
+    });
+    setSaving(false);
+    if (ok) go(`/pos/${po.id}`);
   };
-  const refer = (itemId: string) => {
+  const refer = async (itemId: string) => {
     if (!queryNote.trim()) { alert('Describe the price difference first'); return; }
-    run(() => actions.raiseQuery(po.id, itemId, queryNote.trim(), 'Inventory'));
-    alert('Referred to the backend (HO).');
+    if (await run(() => actions.raiseQuery(po.id, itemId, queryNote.trim()))) alert('Referred to the backend (HO).');
   };
 
   return (
@@ -55,6 +62,7 @@ export default function ReceiptForm({ poId }: { poId: string }) {
           <Field label="Invoice date"><input type="date" value={invoiceDate} onChange={e => setInvoiceDate(e.target.value)} /></Field>
           <Field label="Received date (Factory In)"><input type="date" value={receivedDate} onChange={e => setReceivedDate(e.target.value)} /></Field>
           <Field label="Invoice grand total (as printed)"><input type="number" min={0} step="0.01" value={invoiceTotal || ''} onChange={e => setInvoiceTotal(+e.target.value)} /></Field>
+          <FileInput onChange={setFile} label="Invoice copy (optional, saved to Google Drive)" />
         </div>
       </Card>
       <Card title="Items received" actions={
@@ -69,7 +77,7 @@ export default function ReceiptForm({ poId }: { poId: string }) {
               <td className="r">{mismatch ? <input type="number" min={0} style={{ width: 80 }} value={r.poQty} onChange={e => set(i, { poQty: +e.target.value })} /> : r.poQty}</td>
               <td className="r">{receivedQty(s, po.id, r.itemId)}</td>
               <td className="r"><input type="number" min={0} style={{ width: 80 }} value={r.qty} disabled={!r.selected} onChange={e => set(i, { qty: +e.target.value })} /></td>
-              <td><select value={r.tax} disabled={!r.selected} onChange={e => set(i, { tax: +e.target.value as TaxRate })}><option value={0}>0% (Nil)</option><option value={5}>5%</option><option value={18}>18%</option></select></td>
+              <td><select value={r.tax} disabled={!r.selected} onChange={e => set(i, { tax: +e.target.value })}>{cfg.taxRates.map(x => <option key={x} value={x}>{x === 0 ? '0% (Nil)' : x + '%'}</option>)}</select></td>
               <td className="r">{r.selected ? inr(r.qty * price(r.itemId)) : '—'}</td>
             </tr>
           ))}</tbody>
@@ -95,7 +103,7 @@ export default function ReceiptForm({ poId }: { poId: string }) {
         {invoiceTotal > 0 && (matches
           ? <p className="ok">✓ Matches the invoice total.</p>
           : <p className="bad">Does not match the invoice by {inr(Math.abs(diff))}. Fix quantity / tax, edit the PO quantity if the invoice differs, or refer a price difference to HO.</p>)}
-        <button className="btn primary" disabled={!picked.length} onClick={submit}>Save goods receipt</button>
+        <button className="btn primary" disabled={!picked.length || saving} onClick={submit}>{saving ? 'Saving…' : 'Save goods receipt'}</button>
       </Card>
     </>
   );

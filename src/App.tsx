@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
-import { ROLES, ROLE_LABEL, Role } from './types';
-import { actions, getStorageError, setRole, useRole, useStore } from './store';
+import { actions, init, logout, reload, useSnap } from './store';
+import { api } from './api';
+import { cfg } from './config';
+import { currentToken } from './store';
 import Dashboard from './pages/Dashboard';
 import PoList from './pages/PoList';
 import PoForm from './pages/PoForm';
@@ -9,10 +11,11 @@ import Receipts from './pages/Receipts';
 import ReceiptForm from './pages/ReceiptForm';
 import Accounts from './pages/Accounts';
 import Vendors from './pages/Vendors';
+import Admin from './pages/Admin';
+import { Login, Setup } from './pages/Login';
+import { run } from './ui';
 
-const NAV: [string, string][] = [
-  ['/', 'Dashboard'], ['/pos', 'Purchase Orders'], ['/receipts', 'Goods Receipt'], ['/accounts', 'Accounts'], ['/vendors', 'Vendors & Prices'],
-];
+void actions;
 
 function Route({ path }: { path: string }) {
   const p = path.split('/').filter(Boolean);
@@ -26,30 +29,47 @@ function Route({ path }: { path: string }) {
   if (p[0] === 'receipts') return p[2] === 'new' ? <ReceiptForm poId={p[1]} /> : <Receipts />;
   if (p[0] === 'accounts') return <Accounts />;
   if (p[0] === 'vendors') return <Vendors />;
+  if (p[0] === 'admin') return <Admin />;
   return <p>Page not found.</p>;
 }
 
+async function changePassword() {
+  const oldPw = prompt('Current password');
+  if (!oldPw) return;
+  const newPw = prompt('New password (at least 6 characters)');
+  if (!newPw) return;
+  if (await run(() => api.changePassword(currentToken(), oldPw, newPw))) alert('Password changed.');
+}
+
 export default function App() {
-  useStore();
-  const role = useRole();
+  const s = useSnap();
   const [path, setPath] = useState(() => location.hash.slice(1) || '/');
+  useEffect(() => { init(); }, []);
   useEffect(() => {
     const h = () => { setPath(location.hash.slice(1) || '/'); window.scrollTo(0, 0); };
     window.addEventListener('hashchange', h);
     return () => window.removeEventListener('hashchange', h);
   }, []);
-  const err = getStorageError();
+  useEffect(() => { document.title = `${cfg.company} – ERP`; }, [s.syncedAt]);
+
+  if (s.phase === 'boot') return <p style={{ padding: 24 }}>Loading…</p>;
+  if (s.phase === 'setup') return <Setup />;
+  if (s.phase === 'login' || !s.user) return <Login notice={s.error} />;
+
+  const can = (p: string) => s.user!.permissions.includes(p);
+  const NAV: [string, string][] = [
+    ['/', 'Dashboard'], ['/pos', 'Purchase Orders'], ['/receipts', 'Goods Receipt'], ['/accounts', 'Accounts'], ['/vendors', 'Vendors & Prices'],
+    ...(can('users.manage') ? [['/admin', 'Users & Access'] as [string, string]] : []),
+  ];
   return (
     <>
       <div className="topbar">
-        <h1>Little Nap Recliners · Purchase-to-Inventory</h1>
+        <h1>{cfg.company} · Purchase-to-Inventory</h1>
         <span className="spacer" />
-        <label>Acting as
-          <select value={role} onChange={e => setRole(e.target.value as Role)}>
-            {ROLES.map(r => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}
-          </select>
-        </label>
-        <button className="btn sm" onClick={() => { if (confirm('Reset all data to the demo data?')) actions.reset(); }}>Reset demo data</button>
+        <span className="who">{s.user.name} · {s.user.role}{s.user.department ? ` · ${s.user.department}` : ''} · L{s.user.level}</span>
+        <button className="btn sm" title="Reload from the Google Sheet" onClick={() => run(reload)}>{s.busy ? 'Saving…' : '↻ Refresh'}</button>
+        <button className="btn sm" onClick={changePassword}>Password</button>
+        <button className="btn sm" onClick={() => logout()}>Sign out</button>
       </div>
       <nav>
         {NAV.map(([to, label]) => (
@@ -57,7 +77,7 @@ export default function App() {
         ))}
       </nav>
       <main>
-        {err && <div className="warn">{err}</div>}
+        {s.error && <div className="warn">{s.error}</div>}
         <Route path={path} />
       </main>
     </>

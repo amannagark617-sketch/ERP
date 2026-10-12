@@ -29,7 +29,7 @@ export default function Receipts() {
             <thead><tr><th>GRN</th><th>PO</th><th>Invoice</th><th>Factory In</th><th className="r">Grand total</th></tr></thead>
             <tbody>{[...s.receipts].reverse().map(r => {
               const po = s.pos.find(p => p.id === r.poId)!;
-              return <tr key={r.id}><td>{r.grnNo}</td><td><Link to={`/pos/${po.id}`}>{po.poNo}</Link></td><td>{r.invoiceNo} · {fmtDate(r.invoiceDate)}</td><td>{fmtDate(r.receivedDate)}</td><td className="r">{r.grandTotal.toLocaleString('en-IN')}</td></tr>;
+              return <tr key={r.id}><td>{r.grnNo || '…'}</td><td><Link to={`/pos/${po.id}`}>{po.poNo}</Link></td><td>{r.invoiceNo} · {fmtDate(r.invoiceDate)}</td><td>{fmtDate(r.receivedDate)}</td><td className="r">{r.grandTotal.toLocaleString('en-IN')}</td></tr>;
             })}</tbody>
           </table></div>
         )}

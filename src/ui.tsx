@@ -1,9 +1,10 @@
 import { ReactNode, useState } from 'react';
-import { inr, readScreenshot, today } from './utils';
+import { inr, today } from './utils';
+import { fetchFile, uploadFile } from './store';
 
-/** Run an action and show any validation error to the user. */
-export function run(fn: () => void): boolean {
-  try { fn(); return true; } catch (e) { alert((e as Error).message); return false; }
+/** Run an action (sync or async) and show any error to the user. Resolves true on success. */
+export async function run(fn: () => unknown): Promise<boolean> {
+  try { await fn(); return true; } catch (e) { alert((e as Error).message); return false; }
 }
 
 export const go = (path: string) => { location.hash = '#' + path; };
@@ -37,39 +38,58 @@ export const Field = ({ label, children, hint }: { label: string; children: Reac
   <label className="field"><span>{label}</span>{children}{hint && <small>{hint}</small>}</label>
 );
 
-export function ScreenshotInput({ value, onChange, label = 'Payment screenshot' }: { value?: string; onChange: (v?: string) => void; label?: string }) {
+/** File chooser. The file is uploaded to Google Drive only when the form is submitted. */
+export function FileInput({ onChange, label }: { onChange: (f?: File) => void; label: string }) {
   return (
     <Field label={label}>
-      <input type="file" accept="image/*" onChange={async e => {
-        const f = e.target.files?.[0];
-        onChange(f ? await readScreenshot(f).catch(() => undefined) : undefined);
-      }} />
-      {value && <img src={value} alt="screenshot" className="thumb" />}
+      <input type="file" accept="image/*,application/pdf" onChange={e => onChange(e.target.files?.[0])} />
     </Field>
   );
 }
 
-/** Inline payment form: amount, date, optional screenshot. */
-export function PayForm({ max, defaultAmount, requireShot, extra, onSubmit, onCancel, submitLabel = 'Mark as paid' }: {
-  max?: number; defaultAmount: number; requireShot?: boolean; extra?: ReactNode;
-  onSubmit: (amount: number, date: string, shot?: string) => void; onCancel: () => void; submitLabel?: string;
+/** Opens a file stored in Google Drive (fetched through the app, so no Google sign-in is needed). */
+export function FileLink({ id, label = 'View' }: { id?: string; label?: string }) {
+  if (!id) return <span className="mut">—</span>;
+  return (
+    <a href="#" onClick={async e => {
+      e.preventDefault();
+      const w = window.open('', '_blank');
+      try {
+        const f = await fetchFile(id);
+        const bytes = Uint8Array.from(atob(f.base64), c => c.charCodeAt(0));
+        const url = URL.createObjectURL(new Blob([bytes], { type: f.mime }));
+        if (w) w.location.href = url; else window.open(url, '_blank');
+      } catch (err) { w?.close(); alert((err as Error).message); }
+    }}>{label}</a>
+  );
+}
+
+/** Inline payment form: amount, date, optional/required screenshot (uploaded to Drive on submit). */
+export function PayForm({ max, defaultAmount, requireShot, extra, folder, onSubmit, onCancel, submitLabel = 'Mark as paid' }: {
+  max?: number; defaultAmount: number; requireShot?: boolean; extra?: ReactNode; folder: string;
+  onSubmit: (amount: number, date: string, fileId?: string) => unknown; onCancel: () => void; submitLabel?: string;
 }) {
   const [amount, setAmount] = useState(defaultAmount);
   const [date, setDate] = useState(today());
-  const [shot, setShot] = useState<string>();
+  const [file, setFile] = useState<File>();
+  const [busy, setBusy] = useState(false);
   return (
     <div className="payform">
       <Field label="Amount paid" hint={max !== undefined ? `Balance ${inr(max)}` : undefined}>
         <input type="number" min={0} step="0.01" value={amount} onChange={e => setAmount(+e.target.value)} />
       </Field>
       <Field label="Payment date"><input type="date" value={date} onChange={e => setDate(e.target.value)} /></Field>
-      <ScreenshotInput value={shot} onChange={setShot} label={requireShot ? 'Payment screenshot (attach)' : 'Payment screenshot (optional)'} />
+      <FileInput onChange={setFile} label={requireShot ? 'Payment screenshot (attach)' : 'Payment screenshot (optional)'} />
       {extra}
       <div className="row">
-        <button className="btn primary" onClick={() => {
-          if (requireShot && !shot) { alert('Attach the payment screenshot'); return; }
-          onSubmit(amount, date, shot);
-        }}>{submitLabel}</button>
+        <button className="btn primary" disabled={busy} onClick={async () => {
+          if (requireShot && !file) { alert('Attach the payment screenshot'); return; }
+          setBusy(true);
+          try {
+            const fileId = await uploadFile(file, folder);
+            await onSubmit(amount, date, fileId);
+          } catch (e) { alert((e as Error).message); } finally { setBusy(false); }
+        }}>{busy ? 'Saving…' : submitLabel}</button>
         <button className="btn" onClick={onCancel}>Cancel</button>
       </div>
     </div>

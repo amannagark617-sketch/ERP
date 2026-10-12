@@ -1,13 +1,13 @@
 import { useState } from 'react';
-import { actions, useRole, useStore } from '../store';
-import { itemOf, needsCA, poValue, vendorOf } from '../domain';
+import { actions, useAuth, useStore } from '../store';
+import { approvalRoute, itemOf, poValue, vendorOf } from '../domain';
 import { Card, Field, go, run } from '../ui';
 import { addDays, inr, today } from '../utils';
 import { PoLine } from '../types';
 
 export default function PoForm({ id }: { id?: string }) {
   const s = useStore();
-  const role = useRole();
+  const { can } = useAuth();
   const existing = id ? s.pos.find(p => p.id === id) : undefined;
   const [vendorId, setVendorId] = useState(existing?.vendorId ?? '');
   const [qty, setQty] = useState<Record<string, number>>(
@@ -18,16 +18,16 @@ export default function PoForm({ id }: { id?: string }) {
   const [advAmt, setAdvAmt] = useState(existing?.advanceAmount ?? 0);
   const [expected, setExpected] = useState(existing?.expectedDate ?? addDays(today(), 14));
 
-  if (role !== 'Purchase') return <div className="note">Only Purchase (Navneet) can create or edit a PO. Switch role at the top.</div>;
+  if (!can('po.save')) return <div className="note">Your role is not allowed to create or edit POs.</div>;
   if (existing && existing.status !== 'Draft' && existing.status !== 'Rejected') return <div className="warn">This PO can no longer be edited.</div>;
 
   const vendor = vendorOf(s, vendorId);
   const lines: PoLine[] = (vendor?.items ?? []).filter(i => qty[i.itemId] > 0).map(i => ({ itemId: i.itemId, qty: qty[i.itemId], price: i.price }));
   const total = poValue({ lines } as never);
   const input = () => ({ id, vendorId, lines, terms, advanceRequired: adv, advanceAmount: advAmt, expectedDate: expected });
-  const save = (submit: boolean) => {
+  const save = async (submit: boolean) => {
     let newId = '';
-    if (run(() => { newId = actions.savePO(input(), submit); })) go(`/pos/${newId}`);
+    if (await run(async () => { newId = await actions.savePO(input(), submit); })) go(`/pos/${newId}`);
   };
 
   return (
@@ -39,12 +39,12 @@ export default function PoForm({ id }: { id?: string }) {
           <Field label="Vendor">
             <select value={vendorId} disabled={!!existing} onChange={e => { setVendorId(e.target.value); setQty({}); }}>
               <option value="">Select vendor…</option>
-              {s.vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+              {s.vendors.filter(v => v.active || v.id === vendorId).map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
             </select>
           </Field>
           <Field label="Expected delivery date"><input type="date" value={expected} onChange={e => setExpected(e.target.value)} /></Field>
         </div>
-        {vendor && <p className="mut">Contact: {vendor.contact} · {vendor.email} · WhatsApp {vendor.whatsapp} · Terms {vendor.paymentTermsDays} days{vendor.msme ? ' · MSME' : ''}</p>}
+        {vendor && <p className="mut">Contact: {vendor.contact} · {vendor.email} · WhatsApp {vendor.whatsapp} · Terms {vendor.paymentTermsDays} days{vendor.msme ? ` · MSME ${vendor.msmeType} (${vendor.udyamNo || 'Udyam no. missing'})` : ''}</p>}
       </Card>
       <Card title="Items (price is fixed by the backend and cannot be edited)">
         {!vendor ? <p className="empty">Select a vendor to see its items and prices.</p> : (
@@ -61,7 +61,7 @@ export default function PoForm({ id }: { id?: string }) {
             <tr className="tot"><td colSpan={3} className="r">PO value (before tax)</td><td className="r">{inr(total)}</td></tr></tbody>
           </table></div>
         )}
-        {total > 0 && <p className="mut">Approval route: Factory Head{needsCA({ lines } as never) ? ' → CA (Mohit), since the value is above Rs 10 Lac' : ''}.</p>}
+        {total > 0 && <p className="mut">Approval route: {approvalRoute({ lines }).join(' → ') || 'none (auto-approved)'} <span className="mut">(from the ApprovalRules sheet)</span></p>}
       </Card>
       <Card title="Terms & advance">
         <Field label="Terms and conditions"><textarea value={terms} onChange={e => setTerms(e.target.value)} /></Field>

@@ -1,11 +1,13 @@
 import { AppState, PurchaseOrder, Receipt, Vendor, Item } from './types';
 import { addDays, round2, today } from './utils';
+import { cfg } from './config';
+import { routeFor } from './shared/core';
 
-export const CA_LIMIT = 1_000_000; // Rs 10 Lac: POs above this also need CA approval
-export const MSME_MAX_DAYS = 45;
 
 export const poValue = (po: PurchaseOrder) => round2(po.lines.reduce((s, l) => s + l.qty * l.price, 0));
-export const needsCA = (po: PurchaseOrder) => poValue(po) > CA_LIMIT;
+/** Approvers needed for this PO value, from the ApprovalRules sheet. */
+export const approvalRoute = (po: { lines: { qty: number; price: number }[] }) =>
+  routeFor(cfg.rules, round2(po.lines.reduce((s, l) => s + l.qty * l.price, 0)));
 
 export const vendorOf = (s: AppState, id: string): Vendor | undefined => s.vendors.find(v => v.id === id);
 export const itemOf = (s: AppState, id: string): Item | undefined => s.items.find(i => i.id === id);
@@ -39,7 +41,7 @@ export const receiptBalance = (s: AppState, r: Receipt) => Math.max(0, round2(r.
 export const receiptDue = (s: AppState, r: Receipt) => {
   const po = s.pos.find(p => p.id === r.poId);
   const v = po && vendorOf(s, po.vendorId);
-  const days = v ? (v.msme ? Math.min(v.paymentTermsDays, MSME_MAX_DAYS) : v.paymentTermsDays) : 0;
+  const days = v ? (v.msme ? Math.min(v.paymentTermsDays, cfg.msmeMaxDays) : v.paymentTermsDays) : 0;
   return addDays(r.invoiceDate, days);
 };
 

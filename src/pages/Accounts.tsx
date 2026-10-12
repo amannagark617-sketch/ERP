@@ -1,19 +1,19 @@
 import { Fragment, ReactNode, useState } from 'react';
-import { actions, useRole, useStore } from '../store';
+import { actions, useAuth, useStore } from '../store';
 import {
   itemName, openingPaid, paidTotal, receiptBalance, receiptDue, receiptPaid, vendorOf,
 } from '../domain';
-import { Badge, Card, Empty, Field, Link, PayForm, Stat, run } from '../ui';
+import { Badge, Card, Empty, Field, FileLink, Link, PayForm, Stat, run } from '../ui';
 import { fmtDate, inr, today } from '../utils';
 
 interface Payable { key: string; kind: 'invoice' | 'opening'; refId: string; vendorId: string; ref: string; due: string; amount: number; balance: number; poId?: string }
 
 export default function Accounts() {
   const s = useStore();
-  const role = useRole();
+  const { can: perm, role } = useAuth();
   const [paying, setPaying] = useState<string>();
   const [advPay, setAdvPay] = useState<string>();
-  const can = role === 'Accounts';
+  const canPay = perm('payment.make'), canAccept = perm('invoice.accept'), canAdv = perm('advance.pay'), canOpen = perm('opening.add');
 
   const payables: Payable[] = [
     ...s.receipts.filter(r => r.accepted && receiptBalance(s, r) > 0).map(r => ({
@@ -41,16 +41,16 @@ export default function Accounts() {
         return (
           <Fragment key={p.key}>
             <tr className={overdue ? 'hl' : ''}>
-              <td>{v?.name} {v?.msme && <Badge>MSME</Badge>}</td>
+              <td>{v?.name} {v?.msme && <Badge>MSME</Badge>}{v?.msme && <div className="mut" style={{ fontSize: 12 }}>{v.msmeType} · {v.udyamNo || 'Udyam no. missing'}</div>}</td>
               <td>{p.poId ? <Link to={`/pos/${p.poId}`}>{p.ref}</Link> : p.ref}</td>
               <td className={overdue ? 'bad' : ''}>{fmtDate(p.due)}{overdue && ' (overdue)'}</td>
               <td className="r">{inr(p.amount)}</td><td className="r">{inr(p.balance)}</td>
-              <td className="r">{can && <button className="btn sm primary" onClick={() => setPaying(paying === p.key ? undefined : p.key)}>Pay</button>}</td>
+              <td className="r">{canPay && <button className="btn sm primary" onClick={() => setPaying(paying === p.key ? undefined : p.key)}>Pay</button>}</td>
             </tr>
             {paying === p.key && (
               <tr><td colSpan={6}>
-                <PayForm max={p.balance} defaultAmount={p.balance} onCancel={() => setPaying(undefined)}
-                  onSubmit={(a, d, shot) => run(() => p.kind === 'invoice' ? actions.payInvoice(p.refId, a, d, shot) : actions.payOpening(p.refId, a, d, shot)) && setPaying(undefined)} />
+                <PayForm max={p.balance} defaultAmount={p.balance} folder={p.kind === 'invoice' ? (s.pos.find(x => x.id === p.poId)?.poNo ?? 'Payments') : 'Opening balances'} onCancel={() => setPaying(undefined)}
+                  onSubmit={async (a, d, shot) => { if (await run(() => p.kind === 'invoice' ? actions.payInvoice(p.refId, a, d, shot) : actions.payOpening(p.refId, a, d, shot))) setPaying(undefined); }} />
               </td></tr>
             )}
           </Fragment>
@@ -62,7 +62,7 @@ export default function Accounts() {
   return (
     <>
       <h2>Accounts</h2>
-      {!can && <div className="note">You are viewing as {role}. Payments and acceptances are done by Accounts.</div>}
+      {!canPay && !canAccept && <div className="note">You are viewing as {role}. Payments and acceptances are done by Accounts.</div>}
       <div className="grid" style={{ marginBottom: 16 }}>
         <Stat label="Advance requests" value={advReq.length} tone={advReq.length ? 'amber' : ''} />
         <Stat label="Invoices to accept" value={toAccept.length} tone={toAccept.length ? 'amber' : ''} />
@@ -78,8 +78,8 @@ export default function Accounts() {
             <tbody>{advReq.map(p => (
               <Fragment key={p.id}>
                 <tr><td><Link to={`/pos/${p.id}`}>{p.poNo}</Link></td><td>{vendorOf(s, p.vendorId)?.name}</td><td className="r">{inr(p.advanceAmount)}</td>
-                  <td className="r">{can && <button className="btn sm primary" onClick={() => setAdvPay(advPay === p.id ? undefined : p.id)}>Record payment</button>}</td></tr>
-                {advPay === p.id && <tr><td colSpan={4}><AdvPay po={p.id} amount={p.advanceAmount} done={() => setAdvPay(undefined)} /></td></tr>}
+                  <td className="r">{canAdv && <button className="btn sm primary" onClick={() => setAdvPay(advPay === p.id ? undefined : p.id)}>Record payment</button>}</td></tr>
+                {advPay === p.id && <tr><td colSpan={4}><AdvPay po={p.id} poNo={p.poNo} amount={p.advanceAmount} done={() => setAdvPay(undefined)} /></td></tr>}
               </Fragment>
             ))}</tbody>
           </table></div>
@@ -95,7 +95,7 @@ export default function Accounts() {
               return <tr key={r.id}><td>{r.invoiceNo}<br /><span className="mut">{fmtDate(r.invoiceDate)}</span></td><td><Link to={`/pos/${po.id}`}>{po.poNo}</Link></td><td>{vendorOf(s, po.vendorId)?.name}</td>
                 <td className="mut">{r.lines.map(l => `${itemName(s, l.itemId)} × ${l.qty}`).join(', ')}</td>
                 <td className="r">{inr(r.grandTotal)}</td><td className="r">{inr(r.advanceAdjusted)}</td><td className="r">{inr(r.payable)}</td>
-                <td className="r">{can && <button className="btn sm primary" onClick={() => run(() => actions.acceptInvoice(r.id))}>Accept &amp; book</button>}</td></tr>;
+                <td className="r">{canAccept && <button className="btn sm primary" onClick={() => run(() => actions.acceptInvoice(r.id))}>Accept &amp; book</button>} <FileLink id={r.invoiceFile} label="Invoice copy" /></td></tr>;
             })}</tbody>
           </table></div>
         )}
@@ -105,7 +105,7 @@ export default function Accounts() {
       <Card title={`Other vendors (${inr(sum(others))})`}>{table(others)}</Card>
       <Card title={`Old pending balances (${inr(sum(old))})`}>
         {table(old)}
-        {can && <OpeningForm />}
+        {canOpen && <OpeningForm />}
       </Card>
 
       <Card title="Payments made">
@@ -118,7 +118,7 @@ export default function Accounts() {
               const o = s.openings.find(x => x.id === p.openingId);
               return <tr key={p.id}><td>{fmtDate(p.date)}</td><td>{p.kind}</td>
                 <td>{po ? `${po.poNo}${r ? ' · ' + r.invoiceNo : ''}` : o?.ref}</td><td className="r">{inr(p.amount)}</td>
-                <td>{p.screenshot ? <a href={p.screenshot} target="_blank" rel="noreferrer">View</a> : <span className="mut">—</span>}</td></tr>;
+                <td><FileLink id={p.screenshot} /></td></tr>;
             })}</tbody>
           </table></div>
         )}
@@ -128,12 +128,12 @@ export default function Accounts() {
   );
 }
 
-function AdvPay({ po, amount, done }: { po: string; amount: number; done: () => void }) {
+function AdvPay({ po, poNo, amount, done }: { po: string; poNo: string; amount: number; done: () => void }) {
   const [full, setFull] = useState(false);
   return (
-    <PayForm defaultAmount={amount} requireShot onCancel={done} submitLabel="Mark paid"
+    <PayForm defaultAmount={amount} folder={poNo} requireShot onCancel={done} submitLabel="Mark paid"
       extra={<Field label="Mark PO as"><select value={full ? 'f' : 'a'} onChange={e => setFull(e.target.value === 'f')}><option value="a">Advance Paid</option><option value="f">Fully Paid</option></select></Field>}
-      onSubmit={(a, d, shot) => run(() => actions.payAdvance(po, a, d, full, shot)) && done()} />
+      onSubmit={async (a, d, shot) => { if (await run(() => actions.payAdvance(po, a, d, full, shot))) done(); }} />
   );
 }
 
@@ -154,7 +154,7 @@ function OpeningForm() {
       </div>
       <button className="btn" onClick={() => {
         if (!vendorId || !ref || !(amount > 0)) { alert('Fill vendor, reference and amount'); return; }
-        actions.addOpening(vendorId, ref, amount, due); setRef(''); setAmount(0);
+        run(() => actions.addOpening(vendorId, ref, amount, due)).then(ok => { if (ok) { setRef(''); setAmount(0); } });
       }}>Add balance</button>
     </details>
   );

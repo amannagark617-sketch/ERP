@@ -1,41 +1,39 @@
-export type Role = 'Purchase' | 'Factory Head' | 'CA' | 'HO' | 'Accounts' | 'Inventory';
-export const ROLES: Role[] = ['Purchase', 'Factory Head', 'CA', 'HO', 'Accounts', 'Inventory'];
-export const ROLE_LABEL: Record<Role, string> = {
-  Purchase: 'Purchase (Navneet)',
-  'Factory Head': 'Factory Head',
-  CA: 'CA (Mohit)',
-  HO: 'Backend / HO',
-  Accounts: 'Accounts',
-  Inventory: 'Inventory (Factory)',
-};
-export const ROLE_USER: Record<Role, string> = {
-  Purchase: 'Navneet',
-  'Factory Head': 'Factory Head',
-  CA: 'Mohit',
-  HO: 'HO',
-  Accounts: 'Accounts',
-  Inventory: 'Inventory',
-};
+export type Role = string;
 
-export interface Item { id: string; name: string; unit: string }
-export interface VendorItem { itemId: string; price: number }
-export interface Vendor {
+/** Fields the server maintains on every stored row. */
+interface Sys { _v?: number; _at?: string; _by?: string }
+
+export interface Item extends Sys { id: string; name: string; unit: string }
+export interface VendorItem extends Sys { itemId: string; price: number }
+export interface Vendor extends Sys {
   id: string;
   name: string;
   contact: string;
   email: string;
   whatsapp: string;
   msme: boolean;
+  msmeType: string;
+  udyamNo: string;
+  gstin: string;
+  pan: string;
+  address: string;
+  city: string;
+  state: string;
   paymentTermsDays: number;
+  bankName: string;
+  accountNo: string;
+  ifsc: string;
+  active: boolean;
   items: VendorItem[];
 }
 
-export type PoStatus = 'Draft' | 'Pending Factory Head' | 'Pending CA' | 'Rejected' | 'Approved' | 'Sent to Vendor';
+/** 'Draft' | 'Pending <Role>' | 'Rejected' | 'Approved' | 'Sent to Vendor' */
+export type PoStatus = string;
 export type AdvanceStatus = 'Not Required' | 'Requested' | 'Advance Paid' | 'Fully Paid';
 
-export interface PoLine { itemId: string; qty: number; price: number }
-export interface HistoryEntry { date: string; by: string; text: string }
-export interface PurchaseOrder {
+export interface PoLine extends Sys { itemId: string; qty: number; price: number }
+export interface HistoryEntry extends Sys { id: string; date: string; by: string; text: string }
+export interface PurchaseOrder extends Sys {
   id: string;
   poNo: string;
   date: string;
@@ -47,14 +45,17 @@ export interface PurchaseOrder {
   expectedDate: string;
   status: PoStatus;
   advanceStatus: AdvanceStatus;
-  sentVia?: 'Email' | 'WhatsApp';
+  route: string[];
+  step: number;
+  sentVia?: 'Email' | 'WhatsApp' | '';
   sentTo?: string;
+  createdBy: string;
+  department: string;
   history: HistoryEntry[];
 }
 
-export type TaxRate = 0 | 5 | 18;
-export interface ReceiptLine { itemId: string; qty: number; price: number; taxRate: TaxRate }
-export interface Receipt {
+export interface ReceiptLine extends Sys { itemId: string; qty: number; price: number; taxRate: number }
+export interface Receipt extends Sys {
   id: string;
   grnNo: string;
   poId: string;
@@ -69,9 +70,11 @@ export interface Receipt {
   payable: number;
   accepted: boolean;
   acceptedDate?: string;
+  invoiceFile?: string;
+  createdBy: string;
 }
 
-export interface Payment {
+export interface Payment extends Sys {
   id: string;
   poId?: string;
   receiptId?: string;
@@ -79,18 +82,13 @@ export interface Payment {
   kind: 'advance' | 'invoice' | 'opening';
   amount: number;
   date: string;
-  screenshot?: string;
+  screenshot?: string; // Drive file id
+  paidBy?: string;
 }
 
-export interface OpeningBalance {
-  id: string;
-  vendorId: string;
-  ref: string;
-  amount: number;
-  dueDate: string;
-}
+export interface OpeningBalance extends Sys { id: string; vendorId: string; ref: string; amount: number; dueDate: string }
 
-export interface PriceQuery {
+export interface PriceQuery extends Sys {
   id: string;
   poId: string;
   itemId: string;
@@ -108,5 +106,16 @@ export interface AppState {
   payments: Payment[];
   openings: OpeningBalance[];
   queries: PriceQuery[];
-  seq: { po: number; grn: number };
 }
+
+export interface User {
+  loginId: string;
+  name: string;
+  role: Role;
+  department: string;
+  level: number;
+  permissions: string[];
+}
+
+export interface ApprovalRule { step: number; fromValue: number; approverRole: string; description?: string }
+export interface RoleInfo { role: string; level: number; department: string; description: string }
