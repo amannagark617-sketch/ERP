@@ -1,5 +1,5 @@
 import { Op } from './model';
-import { User, ApprovalRule, RoleInfo } from './types';
+import { User, Approver, RoleInfo, HistoryEntry } from './types';
 import { SERVER_URL } from './serverUrl';
 
 export class ApiError extends Error {
@@ -8,10 +8,15 @@ export class ApiError extends Error {
 
 export interface Boot {
   user: User;
-  config: { settings: Record<string, string>; roles: RoleInfo[]; approvalRules: ApprovalRule[] };
+  config: { settings: Record<string, string>; roles: any[]; approvers: Approver[] };
   data: Record<string, any[]>;
+  stockBase: Record<string, number>;
+  /** true when older settled records were left out (see "Load full history") */
+  partial: boolean;
+  cutoff: string;
+  stamp: string;
 }
-export interface Applied { applied: { table: string; row: any }[]; deleted: { table: string; id: string }[] }
+export interface Applied { applied: { table: string; row: any }[]; deleted: { table: string; id: string }[]; stamp: string }
 
 const URL_KEY = 'littlenap-api-url';
 const ls = {
@@ -45,8 +50,10 @@ export const api = {
   ping: () => call({ action: 'ping' }),
   login: (loginId: string, password: string): Promise<{ token: string; user: User }> => call({ action: 'login', loginId, password }),
   logout: (token: string) => call({ action: 'logout', token }).catch(() => undefined),
-  bootstrap: (token: string): Promise<Boot> => call({ action: 'bootstrap', token }),
-  commit: (token: string, name: string, ops: Op[]): Promise<Applied> => call({ action: 'commit', token, name, ops }),
+  bootstrap: (token: string, all = false): Promise<Boot> => call({ action: 'bootstrap', token, all }),
+  stamp: (token: string): Promise<{ stamp: string }> => call({ action: 'stamp', token }),
+  commit: (token: string, name: string, ops: Op[], note: string): Promise<Applied> => call({ action: 'commit', token, name, ops, note }),
+  history: (token: string, ref: string): Promise<{ entries: HistoryEntry[] }> => call({ action: 'history', token, ref }),
   upload: (token: string, folder: string, f: { name: string; mime: string; base64: string }): Promise<{ fileId: string }> =>
     call({ action: 'upload', token, folder, name: f.name, mime: f.mime, data: f.base64 }),
   file: (token: string, fileId: string): Promise<{ name: string; mime: string; base64: string }> => call({ action: 'file', token, fileId }),

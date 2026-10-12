@@ -1,12 +1,9 @@
 import { Fragment, ReactNode, useState } from 'react';
 import { actions, useAuth, useStore } from '../store';
-import {
-  itemName, openingPaid, paidTotal, receiptBalance, receiptDue, receiptPaid, vendorOf,
-} from '../domain';
+import { itemName, paidTotal, poOf, receiptBalance, vendorOf } from '../domain';
 import { Badge, Card, Empty, Field, FileLink, Link, PayForm, Stat, run } from '../ui';
-import { fmtDate, inr, today } from '../utils';
-
-interface Payable { key: string; kind: 'invoice' | 'opening'; refId: string; vendorId: string; ref: string; due: string; amount: number; balance: number; poId?: string }
+import { addDays, fmtDate, inr, today } from '../utils';
+import { Receipt } from '../types';
 
 export default function Accounts() {
   const s = useStore();
@@ -15,42 +12,34 @@ export default function Accounts() {
   const [advPay, setAdvPay] = useState<string>();
   const canPay = perm('payment.make'), canAccept = perm('invoice.accept'), canAdv = perm('advance.pay'), canOpen = perm('opening.add');
 
-  const payables: Payable[] = [
-    ...s.receipts.filter(r => r.accepted && receiptBalance(s, r) > 0).map(r => ({
-      key: 'r' + r.id, kind: 'invoice' as const, refId: r.id, vendorId: s.pos.find(p => p.id === r.poId)!.vendorId,
-      ref: `Invoice ${r.invoiceNo} (${s.pos.find(p => p.id === r.poId)!.poNo})`, due: receiptDue(s, r), amount: r.payable, balance: receiptBalance(s, r), poId: r.poId,
-    })),
-    ...s.openings.filter(o => o.amount - openingPaid(s, o.id) > 0.005).map(o => ({
-      key: 'o' + o.id, kind: 'opening' as const, refId: o.id, vendorId: o.vendorId, ref: o.ref, due: o.dueDate,
-      amount: o.amount, balance: o.amount - openingPaid(s, o.id),
-    })),
-  ].sort((a, b) => a.due.localeCompare(b.due));
-  const msme = payables.filter(p => p.kind === 'invoice' && vendorOf(s, p.vendorId)?.msme);
-  const others = payables.filter(p => p.kind === 'invoice' && !vendorOf(s, p.vendorId)?.msme);
-  const old = payables.filter(p => p.kind === 'opening');
+  const open = s.receipts.filter(r => r.accepted && receiptBalance(s, r) > 0).sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+  const msme = open.filter(r => r.type === 'Invoice' && vendorOf(s, r.vendorId)?.msme);
+  const others = open.filter(r => r.type === 'Invoice' && !vendorOf(s, r.vendorId)?.msme);
+  const old = open.filter(r => r.type === 'Opening');
   const advReq = s.pos.filter(p => p.advanceStatus === 'Requested');
   const toAccept = s.receipts.filter(r => !r.accepted);
-  const sum = (a: Payable[]) => a.reduce((x, p) => x + p.balance, 0);
+  const sum = (a: Receipt[]) => a.reduce((x, r) => x + receiptBalance(s, r), 0);
 
-  const table = (rows: Payable[]): ReactNode => rows.length === 0 ? <Empty>Nothing pending.</Empty> : (
+  const table = (rows: Receipt[]): ReactNode => rows.length === 0 ? <Empty>Nothing pending.</Empty> : (
     <div className="tablewrap"><table>
       <thead><tr><th>Vendor</th><th>Reference</th><th>Due</th><th className="r">Payable</th><th className="r">Balance</th><th></th></tr></thead>
-      <tbody>{rows.map(p => {
-        const v = vendorOf(s, p.vendorId);
-        const overdue = p.due < today();
+      <tbody>{rows.map(r => {
+        const v = vendorOf(s, r.vendorId);
+        const po = poOf(s, r.poId);
+        const overdue = r.dueDate < today();
         return (
-          <Fragment key={p.key}>
+          <Fragment key={r.id}>
             <tr className={overdue ? 'hl' : ''}>
               <td>{v?.name} {v?.msme && <Badge>MSME</Badge>}{v?.msme && <div className="mut" style={{ fontSize: 12 }}>{v.msmeType} · {v.udyamNo || 'Udyam no. missing'}</div>}</td>
-              <td>{p.poId ? <Link to={`/pos/${p.poId}`}>{p.ref}</Link> : p.ref}</td>
-              <td className={overdue ? 'bad' : ''}>{fmtDate(p.due)}{overdue && ' (overdue)'}</td>
-              <td className="r">{inr(p.amount)}</td><td className="r">{inr(p.balance)}</td>
-              <td className="r">{canPay && <button className="btn sm primary" onClick={() => setPaying(paying === p.key ? undefined : p.key)}>Pay</button>}</td>
+              <td>{po ? <Link to={`/pos/${po.id}`}>Invoice {r.invoiceNo} ({po.poNo})</Link> : r.invoiceNo}</td>
+              <td className={overdue ? 'bad' : ''}>{fmtDate(r.dueDate)}{overdue && ' (overdue)'}</td>
+              <td className="r">{inr(r.payable)}</td><td className="r">{inr(receiptBalance(s, r))}</td>
+              <td className="r">{canPay && <button className="btn sm primary" onClick={() => setPaying(paying === r.id ? undefined : r.id)}>Pay</button>}</td>
             </tr>
-            {paying === p.key && (
+            {paying === r.id && (
               <tr><td colSpan={6}>
-                <PayForm max={p.balance} defaultAmount={p.balance} folder={p.kind === 'invoice' ? (s.pos.find(x => x.id === p.poId)?.poNo ?? 'Payments') : 'Opening balances'} onCancel={() => setPaying(undefined)}
-                  onSubmit={async (a, d, shot) => { if (await run(() => p.kind === 'invoice' ? actions.payInvoice(p.refId, a, d, shot) : actions.payOpening(p.refId, a, d, shot))) setPaying(undefined); }} />
+                <PayForm max={receiptBalance(s, r)} defaultAmount={receiptBalance(s, r)} folder={po?.poNo ?? 'Old balances'} onCancel={() => setPaying(undefined)}
+                  onSubmit={async (a, d, shot) => { if (await run(() => actions.payInvoice(r.id, a, d, shot))) setPaying(undefined); }} />
               </td></tr>
             )}
           </Fragment>
@@ -91,8 +80,8 @@ export default function Accounts() {
           <div className="tablewrap"><table>
             <thead><tr><th>Invoice</th><th>PO</th><th>Vendor</th><th>Items</th><th className="r">Grand total</th><th className="r">Advance adj.</th><th className="r">Payable</th><th></th></tr></thead>
             <tbody>{toAccept.map(r => {
-              const po = s.pos.find(p => p.id === r.poId)!;
-              return <tr key={r.id}><td>{r.invoiceNo}<br /><span className="mut">{fmtDate(r.invoiceDate)}</span></td><td><Link to={`/pos/${po.id}`}>{po.poNo}</Link></td><td>{vendorOf(s, po.vendorId)?.name}</td>
+              const po = poOf(s, r.poId);
+              return <tr key={r.id}><td>{r.invoiceNo}<br /><span className="mut">{fmtDate(r.invoiceDate)}</span></td><td>{po && <Link to={`/pos/${po.id}`}>{po.poNo}</Link>}</td><td>{vendorOf(s, r.vendorId)?.name}</td>
                 <td className="mut">{r.lines.map(l => `${itemName(s, l.itemId)} × ${l.qty}`).join(', ')}</td>
                 <td className="r">{inr(r.grandTotal)}</td><td className="r">{inr(r.advanceAdjusted)}</td><td className="r">{inr(r.payable)}</td>
                 <td className="r">{canAccept && <button className="btn sm primary" onClick={() => run(() => actions.acceptInvoice(r.id))}>Accept &amp; book</button>} <FileLink id={r.invoiceFile} label="Invoice copy" /></td></tr>;
@@ -111,18 +100,16 @@ export default function Accounts() {
       <Card title="Payments made">
         {s.payments.length === 0 ? <Empty>No payments yet.</Empty> : (
           <div className="tablewrap"><table>
-            <thead><tr><th>Date</th><th>Type</th><th>Reference</th><th className="r">Amount</th><th>Screenshot</th></tr></thead>
-            <tbody>{[...s.payments].reverse().map(p => {
-              const po = s.pos.find(x => x.id === p.poId);
+            <thead><tr><th>Date</th><th>Type</th><th>Vendor</th><th>Reference</th><th className="r">Amount</th><th>Screenshot</th></tr></thead>
+            <tbody>{[...s.payments].sort((a, b) => b.date.localeCompare(a.date)).map(p => {
+              const po = poOf(s, p.poId ?? '');
               const r = s.receipts.find(x => x.id === p.receiptId);
-              const o = s.openings.find(x => x.id === p.openingId);
-              return <tr key={p.id}><td>{fmtDate(p.date)}</td><td>{p.kind}</td>
-                <td>{po ? `${po.poNo}${r ? ' · ' + r.invoiceNo : ''}` : o?.ref}</td><td className="r">{inr(p.amount)}</td>
-                <td><FileLink id={p.screenshot} /></td></tr>;
+              return <tr key={p.id}><td>{fmtDate(p.date)}</td><td>{p.kind}</td><td>{vendorOf(s, r?.vendorId ?? po?.vendorId ?? '')?.name}</td>
+                <td>{po ? po.poNo : ''}{r ? ` · ${r.invoiceNo}` : ''}</td><td className="r">{inr(p.amount)}</td><td><FileLink id={p.screenshot} /></td></tr>;
             })}</tbody>
           </table></div>
         )}
-        <p className="mut">Total paid across POs: {inr(s.pos.reduce((a, p) => a + paidTotal(s, p.id), 0))}</p>
+        <p className="mut">Total paid across the POs shown: {inr(s.pos.reduce((a, p) => a + paidTotal(s, p.id), 0))}</p>
       </Card>
     </>
   );
@@ -142,20 +129,17 @@ function OpeningForm() {
   const [vendorId, setVendorId] = useState('');
   const [ref, setRef] = useState('');
   const [amount, setAmount] = useState(0);
-  const [due, setDue] = useState(today());
+  const [due, setDue] = useState(addDays(today(), 0));
   return (
     <details style={{ marginTop: 12 }}>
-      <summary className="mut" style={{ cursor: 'pointer' }}>Add an old pending balance</summary>
+      <summary className="mut" style={{ cursor: 'pointer' }}>Add an old pending balance (a bill from before this app)</summary>
       <div className="form2" style={{ marginTop: 10 }}>
-        <Field label="Vendor"><select value={vendorId} onChange={e => setVendorId(e.target.value)}><option value="">Select…</option>{s.vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}</select></Field>
-        <Field label="Reference"><input value={ref} onChange={e => setRef(e.target.value)} /></Field>
+        <Field label="Vendor"><select value={vendorId} onChange={e => setVendorId(e.target.value)}><option value="">Select…</option>{s.vendors.filter(v => v.active).map(v => <option key={v.id} value={v.id}>{v.name}</option>)}</select></Field>
+        <Field label="Bill / reference"><input value={ref} onChange={e => setRef(e.target.value)} /></Field>
         <Field label="Amount"><input type="number" min={0} value={amount || ''} onChange={e => setAmount(+e.target.value)} /></Field>
         <Field label="Due date"><input type="date" value={due} onChange={e => setDue(e.target.value)} /></Field>
       </div>
-      <button className="btn" onClick={() => {
-        if (!vendorId || !ref || !(amount > 0)) { alert('Fill vendor, reference and amount'); return; }
-        run(() => actions.addOpening(vendorId, ref, amount, due)).then(ok => { if (ok) { setRef(''); setAmount(0); } });
-      }}>Add balance</button>
+      <button className="btn" onClick={() => run(() => actions.addOpening(vendorId, ref, amount, due)).then(ok => { if (ok) { setRef(''); setAmount(0); } })}>Add balance</button>
     </details>
   );
 }

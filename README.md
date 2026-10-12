@@ -1,148 +1,174 @@
 # Little Nap ERP – Purchase-to-Inventory
 
-Purchase orders → multi-level approval → advance → vendor → goods receipt with invoice → Accounts payment,
+Purchase orders → approval → advance → vendor → goods receipt (stock in) → stock out → invoice → payment,
 with a three-way match and a per-PO payment tracker (see the *Purchase-to-Inventory System* process design).
+
+**ONE Google Spreadsheet holds everything** – logins, vendors, prices, POs, stock, payments. The app is the screen; the Sheet is the database.
 
 | What | Where it lives |
 |---|---|
 | Screens (this React app) | this repo → deployed from Google AI Studio (or any web host) |
-| **Business data** – vendors, POs, receipts, payments, audit log | **Google Spreadsheet #1: "DATA"** |
-| **Logins, roles, permissions, approval limits, settings** | **Google Spreadsheet #2: "ACCESS"** (a separate file, created for you) |
-| Uploaded files – payment screenshots, invoice copies | **Google Drive** folder "Little Nap ERP Files" |
-| The bridge between app and Google | a Google **Apps Script** web app (`apps-script/Code.gs`) |
+| **All data and logins** | **one Google Spreadsheet** (12 tabs, below) |
+| Uploaded files – payment screenshots, invoice copies | Google Drive folder "Little Nap ERP Files" |
+| Monthly backup of the whole spreadsheet | Google Drive folder "Little Nap ERP Backups" |
+| The bridge between app and Google | a Google Apps Script web app (`apps-script/Code.gs`) |
 
-The app starts **empty** – no sample data. HO adds vendors/items, you add users.
+The app starts **empty** – no sample data.
+
+---
+
+## The 12 tabs
+
+Tab colours tell you what to touch: **orange = access/settings**, **green = master data**, **grey = written by the app (read-only for you)**.
+
+| Tab | You edit? | Purpose |
+|---|---|---|
+| `Users` | ✏️ | Login ID, Password, Name, **Role**, Department, **Level**, Reports To, Active |
+| `Roles` | ✏️ | One row per role: its **level**, **"Approves POs above Rs"**, and a Yes/No column for each thing it may do (create POs, pay advances, receive goods, issue stock, adjust stock, accept invoices & pay, manage vendors/items/prices, manage users) |
+| `Settings` | ✏️ | Company name, MSME max days (45), tax rates (`0,5,18`), invoice tolerance, how many months of settled history the app loads |
+| `Vendors` | ✏️ | Name, contact, email/WhatsApp, **MSME**, **MSME type**, **Udyam No**, GSTIN, PAN, address, payment terms, bank details, Active |
+| `Items` | ✏️ | Item name, unit, category, min-stock alert, Active |
+| `Prices` | ✏️ | **One row per vendor + item**: who sells what, at what price |
+| `PurchaseOrders`, `POLines` | app | Every PO and its items |
+| `Receipts` | app | Goods received + invoice (also holds *old pending balances* as type "Opening") |
+| `Payments` | app | Advances and invoice payments |
+| `Stock` | app | **The stock in / out log**: IN (from goods receipts), OUT (issued), ADJUST (corrections) |
+| `Log` | app | Who did what, when (also the PO history shown in the app) |
+
+Columns are matched by **header name**: you may re-order columns or add your own extra ones (notes, pivots, charts). Don't rename or delete existing headers.
+Dates are `yyyy-mm-dd`. After editing the Sheet by hand press **↻ Refresh** in the app (it also notices changes by itself within ~30 s).
 
 ---
 
 ## Activate the app – step by step
 
-You need: a Google account (this account owns the data) and this GitHub repo. Total time ≈ 15 minutes.
+You need: a Google account that will own the data (use a company account, not a personal one) and this GitHub repo. ≈ 15 minutes.
 
-### Step 1 – Create the DATA sheet and open Apps Script
-1. Go to <https://sheets.new> (creates a blank Google Sheet). Name it **Little Nap ERP – Data**.
-2. Menu **Extensions → Apps Script**. A script editor opens in a new tab.
+### Step 1 – Create the Sheet and open Apps Script
+1. Go to <https://sheets.new>. Name the file **Little Nap ERP**.
+2. **Extensions → Apps Script** (opens the script editor in a new tab).
 
 ### Step 2 – Paste the server code
-1. In this repo open **`apps-script/Code.gs`** → click **Raw** → select all → copy.
-2. In the Apps Script editor, delete everything in the default `Code.gs` file, paste, and press **Save** (💾).
-   (Name the project anything, e.g. "Little Nap ERP API".)
+1. In this repo open **`apps-script/Code.gs`** → **Raw** → select all → copy.
+2. In the Apps Script editor delete the default code, paste, **Save** (💾).
 
-### Step 3 – Run `setup` (creates all tabs + the ACCESS sheet)
-1. In the toolbar function dropdown choose **`setup`** → press **Run**.
-2. Google asks for permission: **Review permissions → choose your account → "Google hasn't verified this app" → Advanced → "Go to … (unsafe)" → Allow**.
-   (This is your own script; the warning appears for every personal script.)
-3. When it finishes, a message (and **View → Logs**) shows two links:
-   - the **ACCESS** sheet – a new file "Little Nap ERP – Access (logins & settings)" in your Drive
-   - the **DATA** sheet – the one you made
-4. The DATA sheet now has the business tabs (Vendors, VendorItems, Items, PurchaseOrders, …). Nothing else is in it.
+### Step 3 – Run `setup` and `installBackup`
+1. Choose **`setup`** in the function dropdown → **Run**. Approve the permissions
+   (**Review permissions → your account → "Google hasn't verified this app" → Advanced → Go to … (unsafe) → Allow**). It's your own script.
+2. The Sheet now has the 12 coloured tabs. A message shows the Sheet link.
+3. Choose **`installBackup`** → **Run**. This makes a copy of the whole spreadsheet on the 1st of every month (last 12 kept) in your Drive.
 
-### Step 4 – Set the admin password (in the ACCESS sheet)
-1. Open the **ACCESS** sheet → tab **Users**. There is one row: Login ID **`admin`**, Password **empty**.
-2. Type your own password in the **Password** cell. (There is no default password.)
-   The first time that person logs in, the app replaces the plain text with a secure hash.
-3. Add one row per staff member: **Login ID, Password, Full Name, Role, Department, Level, Reports To, Active = Yes**.
-   Roles to use: `Purchase`, `Factory Head`, `CA`, `HO`, `Accounts`, `Inventory`, `Admin` (see the Roles tab; add more there).
-4. **Share the ACCESS sheet only with the Admin.** Share the DATA sheet with whoever should read the numbers.
+### Step 4 – Set the admin password (in the Users tab)
+1. Open the **Users** tab. There is one row: Login ID **`admin`**, Password **empty**. (There is no default password.)
+2. Type your own password in the Password cell. At the first login the app replaces it with a secure hash.
+3. Add one row per staff member: **Login ID, Password, Full Name, Role, Department, Level, Active = Yes**.
+   Roles that exist: `Admin`, `Factory Head`, `CA`, `HO`, `Purchase`, `Accounts`, `Inventory` (see the Roles tab; add your own rows there).
+4. **Share the spreadsheet with the Admin only.** Staff use the app and never need access to the Sheet (the Users tab holds password hashes).
 
 ### Step 5 – Deploy as a web app
-1. In Apps Script: **Deploy → New deployment** → ⚙ **Select type → Web app**.
-2. *Description*: `v1`. *Execute as*: **Me**. *Who has access*: **Anyone**. → **Deploy**.
-3. Copy the **Web app URL** (`https://script.google.com/macros/s/…/exec`).
-   "Anyone" only means anyone can *reach* the URL – every request still needs a valid Login ID + password.
+1. **Deploy → New deployment → ⚙ Select type → Web app**. *Execute as*: **Me**. *Who has access*: **Anyone**. → **Deploy**.
+2. Copy the **Web app URL** (`https://script.google.com/macros/s/…/exec`).
+   "Anyone" only means anyone can *reach* the address – every request still needs a valid Login ID + password.
 
 ### Step 6 – Give the app the URL
-Open **`src/serverUrl.ts`** in this repo and paste the URL between the quotes:
+Put it in **`src/serverUrl.ts`**:
 ```ts
 export const SERVER_URL = 'https://script.google.com/macros/s/…/exec';
 ```
-Commit it (or just send me the URL and I will). Now every user's browser connects automatically.
-(Alternative for a quick test: leave it empty and paste the URL on the app's first screen – that is remembered in that browser only.)
+Commit it (or send it to me and I will). Every user's browser then connects automatically.
+(For a quick test you can instead paste the URL on the app's first screen – remembered in that browser only.)
 
 ### Step 7 – Put the app online (Google AI Studio)
-1. In **Google AI Studio** create/import the app from this GitHub repo (branch with the code), or upload the repo as a ZIP.
-2. Run it in the AI Studio preview to check the login screen appears.
-3. Use AI Studio's **Deploy** option to publish it and share the link with your staff.
-   *(Menu names in AI Studio change from time to time; if you can't find Deploy, any static host works too: run `npm install && npm run build` and upload the `dist/` folder to Netlify, Vercel, Firebase Hosting, GitHub Pages, etc.)*
+1. In **Google AI Studio** create/import the app from this GitHub repo, or upload the repo as a ZIP.
+2. Open the preview and check the login screen appears.
+3. Use AI Studio's **Deploy** to publish and share the link with staff.
+   *(Menu names change from time to time; any static host also works: `npm install && npm run build`, then upload the `dist/` folder to Netlify, Vercel, Firebase Hosting, GitHub Pages…)*
 
 ### Step 8 – First use
-1. Log in as `admin`. Open **Vendors & Prices**: add **Items**, then **+ New vendor** (MSME, Udyam, GSTIN, bank details, and the agreed price per item).
-2. Open **Users & Access** to add/edit users from inside the app (or edit the Users tab).
-3. Log in as Purchase (Navneet) → **New PO**. Done – the flow is live.
+1. Log in as `admin` → **Items & Prices** → **+ New item**; **Vendors** → **+ New vendor** (MSME, Udyam, GSTIN, bank, and its price list).
+2. Stock already in the factory? **Stock → Adjust stock** (reason "Opening stock") – one line per item. Bills from before the app? **Accounts → Add an old pending balance**.
+3. Log in as Purchase → **New PO**. The flow is live.
 
-### When you change something later
-- **Users, roles, permissions, approval limit, tax rates** → just edit the ACCESS sheet. Users see it after their next login/refresh.
-- **Vendors & prices** → in the app (HO) or directly in the DATA sheet, then press **↻ Refresh**.
-- **Server code changed** (I'll tell you when): replace the code in Apps Script, **Deploy → Manage deployments → ✏ → Version: New version → Deploy**. The URL stays the same. Then run `setup` again if I mention new columns (it never overwrites data).
-- **App screens changed** → redeploy from AI Studio / re-upload `dist/`.
+### Already ran the earlier version (two spreadsheets)?
+Nothing real is lost – just start clean. Easiest (keeps your Web app URL):
+1. Open the main spreadsheet and **delete every tab** except one empty tab. Delete the second "Access" spreadsheet from Drive.
+2. Extensions → Apps Script: replace the whole code with the new `Code.gs`, Save, run **`setup`** (approve the new permissions) and **`installBackup`**.
+3. **Deploy → Manage deployments → ✏️ → Version: New version → Deploy** (same URL). Then Step 4 above.
 
 ---
 
-## The Google Sheets
+## Everyday tasks
 
-**ACCESS spreadsheet – control panel (Admin only)**
-
-| Tab | Purpose |
+| I want to… | Do this |
 |---|---|
-| `Users` | Login ID, Password, Name, **Role**, **Department**, **Level** (hierarchy), Reports To, Active (Yes/No) |
-| `Roles` | Role names, default level and department. Add a role here, then use it in Users |
-| `Permissions` | Which **roles** (or minimum **level**) may do each action, e.g. `po.approve` → `Factory Head,CA`. Level 5 = Admin override |
-| `ApprovalRules` | Approval chain by PO value: *Step 1 – Factory Head – above 0*, *Step 2 – CA – above 10,00,000*. Add rows or change roles/limits |
-| `Settings` | Company name, MSME max days (45), tax rates offered at receipt (`0,5,18`), invoice tolerance, Drive folder id |
+| **Add an item** | Items & Prices → **+ New item** (or type a row in the `Items` tab) |
+| **Stop using an item** | Items & Prices → Edit → **Archive item** (hidden from new POs; old POs keep it). Items are never deleted, so history never breaks |
+| **Five vendors sell the same item at different prices** | Give each vendor a price for that item (Items & Prices → Edit → *Add a vendor*, or Vendors → Edit → *Add an item*, or a row per vendor in the `Prices` tab). The item list shows them **cheapest first**; on a PO the form warns "cheaper elsewhere" |
+| **Change a price** | Same screen → change the number → Save. Open POs keep the price they were raised with; new POs use the new price |
+| **Add / remove a vendor** | Vendors → New / Edit (set *Active = No* to retire) |
+| **Receive goods** | Goods Receipt → pick the PO → enter invoice → saved as **Stock IN** automatically |
+| **Issue material to production** | Stock → **Issue stock** (item, qty, department/purpose). Can't issue more than is on hand |
+| **Fix a stock count** | Stock → **Adjust stock** (needs a reason; only roles with *Adjust Stock*) |
+| **Add a person** | Users & Access (or a row in the `Users` tab) |
+| **Change who approves, or the Rs 10 Lac limit** | `Roles` tab → column *Approves POs above Rs* (Factory Head `0`, CA `1000000`; blank = not an approver) |
+| **Give a role a new power** | `Roles` tab → put **Yes** in that role's column |
+| **See old settled POs** | Top bar → **Load full history** |
 
-**DATA spreadsheet**
+---
 
-| Tab | Purpose |
-|---|---|
-| `Vendors` | Name, contact, email/WhatsApp, **MSME**, **MSME type**, **Udyam No**, GSTIN, PAN, address, payment terms, bank details, Active |
-| `VendorItems` | Vendor-wise products and agreed price |
-| `Items` | Item list and unit |
-| `PurchaseOrders`, `POLines`, `POHistory`, `Receipts`, `ReceiptLines`, `Payments`, `OpeningBalances`, `PriceQueries`, `Counters` | Written by the app – filter them, make pivots/charts on them |
-| `AuditLog` | Who did what, when |
+## Built to run for years without changes
 
-Columns are matched by **header name**: re-order them or add your own extra columns (notes, pivots). Don't rename existing headers.
-Dates are `yyyy-mm-dd`. After editing a sheet by hand press **↻ Refresh** in the app (it also refreshes every minute).
+- **Items, vendors and users are never deleted** by the app – they are archived/deactivated, so a PO from 2026 still opens in 2030. (Payments, stock movements and the log can't be edited or removed from the app either.)
+- **Fast on purpose:** the app loads *open work + the last 6 months* (set `RecentMonths` in Settings). Old settled POs stay in the Sheet and load on demand. It also checks "has anything changed?" cheaply instead of re-reading the Sheet.
+- **Measured** (simulated, server logic only – I can't time Google's own Sheet reads from here):
+
+  | Volume | POs after 4 years | Default load | Server time |
+  |---|---|---|---|
+  | 2 POs / working day | ~2,900 | ~1 MB | ~0.2 s |
+  | 8 POs / working day (very busy) | ~11,700 | ~4 MB | ~0.5 s |
+
+  The Sheet itself stays well inside Google's 10-million-cell limit (≈ 3 M cells at the busy volume). "Load full history" gets heavy beyond ~10,000 POs – it is an occasional lookup, the Sheet remains the full record.
+- **Backups:** `installBackup` copies the spreadsheet monthly (last 12 kept). You can also run `backupNow` any time. Google Sheets' own *File → Version history* works too.
+- **Ownership:** the script runs as the account that deployed it. Use a company-owned Google account; if that person leaves, transfer ownership of the Sheet *and* re-deploy the script from the new owner before the old account is removed.
+- **Don'ts:** don't delete or rename header cells; don't sort or filter the grey tabs in place (use a copy or a filter *view*); keep the Sheet's owner account alive.
+- If Google changes something, only `apps-script/host.gs` needs touching – the business rules are separate.
 
 ## Access model
-- Every screen and button follows the **Permissions** tab – a new department/role needs no code: add the role, set its permissions, add users.
-- Approval is by *role at the current step*: a PO "Pending CA" can be approved only by a user whose Role is `CA`.
-- The server re-checks every save: role permission, approval route (recomputed from `ApprovalRules`), prices (must equal the vendor price list),
-  payments (accepted invoice, not above the balance), no edits to past payments/history, and a version check so two people can't silently overwrite each other.
-- Passwords are stored as SHA-256 hashes in the ACCESS sheet (anyone typing a plain password there gets it hashed at next login). 5 wrong tries lock a login for 15 minutes; sessions last 6 hours.
-- Logins live in a different file from the business data, so sharing the DATA sheet never exposes them.
-
-**Honest limits:** this is an internal tool on Google Apps Script, not a bank-grade system. The server does *not* re-check the softer rules
-(e.g. received quantity vs pending quantity, tax-rate choice) – those are enforced in the browser; everything is in the AuditLog.
-Apps Script has daily quotas and each save takes ~1–3 s. Files must be images/PDF up to 8 MB (photos are shrunk automatically).
+- Every screen and button follows the **Roles** tab. Approval is by *role at the current step*: a PO "Pending CA" can be approved only by a user whose Role is `CA`.
+- The server re-checks every save: role permission, approval route (recomputed from the Roles tab), prices (must equal that vendor's price), received quantity vs pending, advance deduction, invoice total, payments (accepted invoice, not above the balance), stock issue (not below zero), no edits to past payments/stock/log, and a version check so two people can't silently overwrite each other.
+- Passwords are SHA-256 hashes in the Users tab (a plain password typed there is hashed at that person's next login). 5 wrong tries lock a login for 15 minutes; sessions last 6 hours.
+- **Honest limits:** an internal tool on Google Apps Script, not bank-grade. Anyone who can *edit the spreadsheet* can change anything (including passwords) – that is why only the Admin gets access. Each save takes ~1–3 s. Files must be images/PDF up to 8 MB (photos are shrunk automatically).
 
 ## Troubleshooting
 | Symptom | Fix |
 |---|---|
-| "The Sheet is not set up yet" | Run `setup` in Apps Script (Step 3), then redeploy a new version |
-| "No password has been set for this login yet" | Type a password in the Users tab (ACCESS sheet) |
-| "Cannot reach the server" / invalid data | URL wrong, or deployment access is not **Anyone**; re-check Step 5/6 |
-| Changed Code.gs but nothing changed | You must **Deploy → Manage deployments → New version** |
-| A role can't see a button | Check the Permissions tab (Allowed Roles spelling must match the Role exactly) |
-| "Someone else has just changed this record" | Normal when two people edit at once – the latest data is loaded, repeat the action |
+| "The Sheet is not set up yet" | Run `setup` in Apps Script, then redeploy a new version |
+| "No password has been set for this login yet" | Type a password in the Users tab |
+| "Cannot reach the server" / invalid data | URL wrong, or the deployment's access is not **Anyone** |
+| Changed Code.gs but nothing changed | **Deploy → Manage deployments → New version** |
+| A role can't see a button | Roles tab: that role's column must say **Yes** (and the Role spelling in Users must match) |
+| "Someone else has just changed this record" | Normal when two people edit at once – data is reloaded, repeat the action |
+| "This page could not be shown" | A row in the Sheet is incomplete (e.g. a vendor row was deleted that an old PO uses). Restore it or press Reload |
 
 ## Develop
 ```bash
 npm install
 npm run dev            # http://localhost:3000
 npm run build
-npm test               # server rules + generated Code.gs smoke test (uses test-only sample data)
+npm test               # server rules + generated Code.gs smoke test (test-only sample data)
 npm run build:server   # regenerates apps-script/Code.gs after changing src/shared/*
+node tests/scale.mjs 8 4   # simulate 4 years at 8 POs/day
 ```
 
 | Change… | Edit |
 |---|---|
-| Sheet columns / new tab | `src/shared/schema.ts` → `npm run build:server` → re-paste `Code.gs` → new deployment version → run `setup` |
-| Server rules, permission logic, validations | `src/shared/core.ts` |
-| Starter roles / permissions / approval rules | `src/shared/seed.ts` |
-| Business calculations (outstanding, due dates, pending) | `src/domain.ts` |
-| Workflow steps the browser performs | `src/store.ts` |
+| Sheet columns / new tab | `src/shared/schema.ts` → `npm run build:server` → re-paste `Code.gs` → new deployment version → run `setup` (adds missing columns, never overwrites) |
+| Server rules, permissions, validations | `src/shared/core.ts` |
+| Starter roles / settings | `src/shared/seed.ts` |
+| Calculations (outstanding, due dates, stock on hand) | `src/domain.ts` |
+| What the browser does for each step | `src/store.ts` |
 | Screens | `src/pages/*` |
-| Google Sheets / Drive adapter | `apps-script/host.gs` |
+| Google Sheets / Drive adapter, backups | `apps-script/host.gs` |
 
 ## Next phase (from the process doc)
-Requisition slip → PO link, Inventory out (issue to production), BOM & customization.
+Requisition slip → PO link, BOM & customization. (Inventory out is done: Stock → Issue stock.)

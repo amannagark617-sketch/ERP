@@ -5,29 +5,29 @@ import { AppState } from './types';
 export type Flat = Record<TableKey, any[]>;
 export const emptyFlat = (): Flat => Object.fromEntries(DATA_TABLES.map(k => [k, []])) as unknown as Flat;
 
-const by = <T extends Record<string, any>>(rows: T[], key: string, id: string) => rows.filter(r => r[key] === id);
+const by = (rows: any[], key: string, id: string) => rows.filter(r => r[key] === id);
 
 /** Sheet rows → nested objects the screens work with. */
-export function nest(f: Flat): AppState {
+export function nest(f: Flat, stockBase: Record<string, number> = {}): AppState {
+  const ins = f.stock.filter(s => s.type === 'IN');
   return {
     items: f.items.map(x => ({ ...x })),
     vendors: f.vendors.map(v => ({
       ...v,
-      items: by(f.vendorItems, 'vendorId', v.id).map(({ id: _i, vendorId: _v, ...rest }) => rest),
+      items: by(f.prices, 'vendorId', v.id).map(({ id: _i, vendorId: _v, vendorName: _n, itemName: _m, ...rest }) => rest),
     })),
     pos: f.pos.map(p => ({
       ...p,
       route: p.route ? String(p.route).split(',') : [],
-      lines: by(f.poLines, 'poId', p.id).map(({ id: _i, poId: _p, ...rest }) => rest),
-      history: by(f.poHistory, 'poId', p.id).map(({ poId: _p, ...rest }) => rest),
+      lines: by(f.poLines, 'poId', p.id).map(({ id: _i, poId: _p, poNo: _n, itemName: _m, ...rest }) => rest),
     })),
     receipts: f.receipts.map(r => ({
       ...r,
-      lines: by(f.receiptLines, 'receiptId', r.id).map(({ id: _i, receiptId: _r, ...rest }) => rest),
+      lines: by(ins, 'receiptId', r.id).map(({ id: _i, receiptId: _r, date: _d, type: _t, itemName: _m, grnNo: _g, toDept: _x, note: _o, by: _b, ...rest }) => rest),
     })),
     payments: f.payments.map(x => ({ ...x })),
-    openings: f.openings.map(x => ({ ...x })),
-    queries: f.queries.map(x => ({ ...x })),
+    stock: f.stock.filter(s => s.type !== 'IN').map(x => ({ ...x })),
+    stockBase,
   } as AppState;
 }
 
@@ -37,26 +37,30 @@ export function flatten(s: AppState): Flat {
   f.items = s.items.map(x => ({ ...x }));
   for (const { items, ...v } of s.vendors) {
     f.vendors.push(v);
-    items.forEach(i => f.vendorItems.push({ ...i, id: `${v.id}:${i.itemId}`, vendorId: v.id }));
+    items.forEach(i => f.prices.push({ ...i, id: `${v.id}:${i.itemId}`, vendorId: v.id }));
   }
-  for (const { lines, history, route, ...p } of s.pos) {
+  for (const { lines, route, ...p } of s.pos) {
     f.pos.push({ ...p, route: route.join(',') });
     lines.forEach(l => f.poLines.push({ ...l, id: `${p.id}:${l.itemId}`, poId: p.id }));
-    history.forEach(h => f.poHistory.push({ ...h, poId: p.id }));
   }
   for (const { lines, ...r } of s.receipts) {
     f.receipts.push(r);
-    lines.forEach(l => f.receiptLines.push({ ...l, id: `${r.id}:${l.itemId}`, receiptId: r.id }));
+    lines.forEach(l => f.stock.push({ ...l, id: `${r.id}:${l.itemId}`, receiptId: r.id, type: 'IN', date: r.receivedDate, toDept: '', note: '' }));
   }
   f.payments = s.payments.map(x => ({ ...x }));
-  f.openings = s.openings.map(x => ({ ...x }));
-  f.queries = s.queries.map(x => ({ ...x }));
+  f.stock.push(...s.stock.map(x => ({ ...x })));
   return f;
 }
 
 export interface Op { t: 'upsert' | 'delete'; table: TableKey; row?: any; id?: string }
 
-const strip = (r: any) => { const { _at, _by, _v, __row, ...rest } = r; return JSON.stringify(rest, Object.keys(rest).sort()); };
+// Helper / display columns are filled in by the server and must not count as changes.
+const IGNORE = new Set(['_at', '_by', '_v', '__row', 'vendorName', 'itemName', 'poNo', 'grnNo', 'createdBy', 'department', 'paidBy', 'by', 'queryBy']);
+const strip = (r: any) => {
+  const o: any = {};
+  Object.keys(r).filter(k => !IGNORE.has(k)).sort().forEach(k => { o[k] = r[k]; });
+  return JSON.stringify(o);
+};
 
 /** Changes needed to turn `a` into `b`. */
 export function diff(a: Flat, b: Flat): Op[] {

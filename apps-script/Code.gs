@@ -1,41 +1,30 @@
 // GENERATED FILE - do not edit by hand. Run `npm run build:server` after changing src/shared/*.
 /**
- * Little Nap ERP – Google Apps Script host.
+ * Little Nap ERP - Google Apps Script host.
  * `Core` (bundled below this file's contents in Code.gs) holds all the logic; this file only talks to Sheets / Drive.
  *
- * TWO Google Spreadsheet files are used:
- *   DATA   – the sheet this script is attached to: vendors, POs, receipts, payments, audit log …
- *   ACCESS – a separate file, created automatically by setup(): Users (Login ID + password), Roles, Permissions,
- *            ApprovalRules, Settings. Share it with the Admin only.
+ * EVERYTHING lives in ONE Google Spreadsheet: the one this script is attached to
+ * (Extensions > Apps Script). Tabs, logins, data - all in that single file.
  *
- * See README.md  →  "Activate the app"  for the step-by-step guide.
- *
+ * See README.md  ->  "Activate the app"  for the step-by-step guide.
  * After changing this file later: Deploy > Manage deployments > Edit > New version (the URL stays the same).
  */
 
-// Optional: to use an ACCESS sheet you already made, paste its ID here (the long text in its URL between /d/ and /edit).
-// Leave empty and setup() will create one for you.
-var ACCESS_SPREADSHEET_ID = '';
-
 var ROOT_FOLDER_NAME = 'Little Nap ERP Files';
 
-var _books = {};
-function _ss(book) {
-  if (_books[book]) return _books[book];
+var _ssCache = null;
+function _ss() {
+  if (_ssCache) return _ssCache;
   var props = PropertiesService.getScriptProperties();
-  var key = book === 'access' ? 'ACCESS_SS_ID' : 'DATA_SS_ID';
-  var id = book === 'access' ? (ACCESS_SPREADSHEET_ID || props.getProperty(key)) : props.getProperty(key);
+  var id = props.getProperty('DATA_SS_ID');
   var ss;
   if (id) ss = SpreadsheetApp.openById(id);
-  else if (book === 'access') {
-    ss = SpreadsheetApp.create('Little Nap ERP - Access (logins & settings)');
-    props.setProperty(key, ss.getId());
-  } else {
+  else {
     ss = SpreadsheetApp.getActiveSpreadsheet();
     if (!ss) throw new Error('Open this script from inside the Google Sheet (Extensions > Apps Script) and run setup() there.');
-    props.setProperty(key, ss.getId());
+    props.setProperty('DATA_SS_ID', ss.getId());
   }
-  _books[book] = ss;
+  _ssCache = ss;
   return ss;
 }
 
@@ -43,8 +32,8 @@ var host = {
   now: function () { return new Date().toISOString(); },
   uuid: function () { return Utilities.getUuid(); },
 
-  ensureSheet: function (book, name, headers, textHeaders) {
-    var ss = _ss(book);
+  ensureSheet: function (name, headers, textHeaders, color) {
+    var ss = _ss();
     var sh = ss.getSheetByName(name);
     if (!sh) { sh = ss.insertSheet(name); sh.setFrozenRows(1); }
     var width = Math.max(sh.getLastColumn(), 1);
@@ -56,6 +45,7 @@ var host = {
         existing[col - 1] = h;
       }
     });
+    if (color) sh.setTabColor(color);
     // Text columns stay text (so 0012 or 2026-10-12 are never auto-converted)
     textHeaders.forEach(function (h) {
       var c = existing.indexOf(h) + 1;
@@ -63,10 +53,10 @@ var host = {
     });
   },
 
-  read: function (book, name) {
-    var sh = _ss(book).getSheetByName(name);
+  read: function (name) {
+    var sh = _ss().getSheetByName(name);
     if (!sh || sh.getLastRow() < 1) return [];
-    var tz = _ss(book).getSpreadsheetTimeZone();
+    var tz = _ss().getSpreadsheetTimeZone();
     var vals = sh.getDataRange().getValues();
     var headers = vals[0].map(String);
     var out = [];
@@ -91,14 +81,14 @@ var host = {
     headers.forEach(function (h, j) { if (h && Object.prototype.hasOwnProperty.call(row, h)) cur[j] = row[h]; });
     range.setValues([cur]);
   },
-  append: function (book, name, row) {
-    var sh = _ss(book).getSheetByName(name);
+  append: function (name, row) {
+    var sh = _ss().getSheetByName(name);
     var idx = Math.max(sh.getLastRow(), 1) + 1;
     host._write(sh, idx, row);
     return idx;
   },
-  update: function (book, name, idx, row) { host._write(_ss(book).getSheetByName(name), idx, row); },
-  remove: function (book, name, idx) { _ss(book).getSheetByName(name).deleteRow(idx); },
+  update: function (name, idx, row) { host._write(_ss().getSheetByName(name), idx, row); },
+  remove: function (name, idx) { _ss().getSheetByName(name).deleteRow(idx); },
 
   withLock: function (fn) {
     var lock = LockService.getScriptLock();
@@ -120,6 +110,14 @@ var host = {
     var f = folder.createFile(blob);
     return { id: f.getId(), folderId: root.getId() };
   },
+  // Changes whenever anything in the spreadsheet changes (also when edited by hand) - lets the app check for news cheaply.
+  stamp: function () {
+    var bump = PropertiesService.getScriptProperties().getProperty('STAMP') || '0';
+    var t = 0;
+    try { t = DriveApp.getFileById(_ss().getId()).getLastUpdated().getTime(); } catch (e) { /* ignore */ }
+    return bump + ':' + t;
+  },
+  bumpStamp: function () { PropertiesService.getScriptProperties().setProperty('STAMP', String(Date.now())); },
   readFile: function (id) {
     var f = DriveApp.getFileById(id);
     var blob = f.getBlob();
@@ -139,19 +137,40 @@ function doGet() { return _json({ ok: true, app: 'Little Nap ERP API', hint: 'Us
 /** Run this ONCE from the editor. Safe to run again later (adds missing tabs/columns, never overwrites data). */
 function setup() {
   var msg = Core.setup(host);
-  var access = _ss('access');
-  var data = _ss('data');
-  // Tidy: remove the empty default "Sheet1" tabs
-  [data, access].forEach(function (ss) {
-    var s1 = ss.getSheetByName('Sheet1');
-    if (s1 && ss.getSheets().length > 1 && s1.getLastRow() === 0) ss.deleteSheet(s1);
-  });
-  var out = msg + '\n\nACCESS sheet (logins - share only with the Admin):\n' + access.getUrl() +
-    '\n\nDATA sheet:\n' + data.getUrl() +
-    '\n\nNEXT: open the ACCESS sheet > Users tab > type a password for the "admin" row. Then Deploy > New deployment > Web app.';
+  var ss = _ss();
+  var s1 = ss.getSheetByName('Sheet1'); // tidy: remove the empty default tab
+  if (s1 && ss.getSheets().length > 1 && s1.getLastRow() === 0) ss.deleteSheet(s1);
+  var out = msg + '\n\nYour spreadsheet:\n' + ss.getUrl() +
+    '\n\nNEXT: open the Users tab and type a password for the "admin" row. Then Deploy > New deployment > Web app.' +
+    '\nAlso run installBackup() once to get an automatic monthly backup copy in your Drive.';
   Logger.log(out);
   try { SpreadsheetApp.getUi().alert(out); } catch (e) { /* not run from a Sheet window */ }
   return out;
+}
+
+// ---------------------------------------------------------------- automatic backups
+var BACKUP_KEEP = 12;     // how many monthly copies to keep
+var BACKUP_FOLDER = 'Little Nap ERP Backups';
+
+/** Copies the whole spreadsheet into a Drive folder and deletes copies older than the last BACKUP_KEEP. */
+function backupNow() {
+  var file = DriveApp.getFileById(_ss().getId());
+  var it = DriveApp.getFoldersByName(BACKUP_FOLDER);
+  var folder = it.hasNext() ? it.next() : DriveApp.createFolder(BACKUP_FOLDER);
+  var stamp = Utilities.formatDate(new Date(), 'Asia/Kolkata', 'yyyy-MM-dd');
+  file.makeCopy(file.getName() + ' - backup ' + stamp, folder);
+  var files = [], f = folder.getFiles();
+  while (f.hasNext()) files.push(f.next());
+  files.sort(function (a, b) { return b.getDateCreated() - a.getDateCreated(); });
+  for (var i = BACKUP_KEEP; i < files.length; i++) files[i].setTrashed(true);
+}
+
+/** Run once: makes a backup on the 1st of every month. */
+function installBackup() {
+  ScriptApp.getProjectTriggers().forEach(function (t) { if (t.getHandlerFunction() === 'backupNow') ScriptApp.deleteTrigger(t); });
+  ScriptApp.newTrigger('backupNow').timeBased().onMonthDay(1).atHour(3).create();
+  backupNow();
+  Logger.log('Backup installed: a copy is made on the 1st of every month into the Drive folder "' + BACKUP_FOLDER + '" (last ' + BACKUP_KEEP + ' kept). First copy made now.');
 }
 
 // ===================== bundled server logic (src/shared) =====================
@@ -179,27 +198,69 @@ var Core = (() => {
   var core_exports = {};
   __export(core_exports, {
     ApiError: () => ApiError,
+    DATA_TABLES: () => DATA_TABLES,
+    approversOf: () => approversOf,
     handle: () => handle,
     routeFor: () => routeFor,
     setup: () => setup
   });
 
   // src/shared/schema.ts
-  var c = (key, header, type = "text") => ({ key, header, type });
+  var c = (key, header, type = "text", dflt = false) => ({ key, header, type, dflt });
   var SYSTEM_COLS = [c("_v", "Version", "num"), c("_at", "Updated At"), c("_by", "Updated By")];
+  var ACCESS = "#e69138";
+  var MASTER = "#38761d";
+  var APP = "#999999";
   var TABLES = {
-    // ---------- Master data (HO) ----------
-    items: {
-      sheet: "Items",
-      id: "id",
-      kind: "data",
-      autoId: "I",
-      cols: [c("id", "Item ID"), c("name", "Item Name"), c("unit", "Unit")]
+    // ---------- Access & settings (Admin) ----------
+    users: {
+      sheet: "Users",
+      id: "loginId",
+      kind: "config",
+      color: ACCESS,
+      cols: [
+        c("loginId", "Login ID"),
+        c("password", "Password"),
+        c("name", "Full Name"),
+        c("role", "Role"),
+        c("department", "Department"),
+        c("level", "Level", "num"),
+        c("reportsTo", "Reports To (Login ID)"),
+        c("active", "Active (Yes/No)", "bool")
+      ]
     },
+    roles: {
+      sheet: "Roles",
+      id: "role",
+      kind: "config",
+      color: ACCESS,
+      cols: [
+        c("role", "Role"),
+        c("level", "Level", "num"),
+        c("approvesAbove", "Approves POs above Rs (blank = not an approver)"),
+        c("cPo", "Create & Send POs", "bool"),
+        c("cAdvance", "Pay Advances", "bool"),
+        c("cReceive", "Receive Goods (Stock In)", "bool"),
+        c("cIssue", "Issue Stock (Stock Out)", "bool"),
+        c("cAdjust", "Adjust Stock", "bool"),
+        c("cPay", "Accept Invoices & Pay", "bool"),
+        c("cMaster", "Manage Vendors, Items & Prices", "bool"),
+        c("cUsers", "Manage Users", "bool")
+      ]
+    },
+    settings: {
+      sheet: "Settings",
+      id: "key",
+      kind: "config",
+      color: ACCESS,
+      cols: [c("key", "Setting"), c("value", "Value"), c("description", "Meaning")]
+    },
+    // ---------- Master data (HO) ----------
     vendors: {
       sheet: "Vendors",
       id: "id",
       kind: "data",
+      color: MASTER,
       autoId: "V",
       cols: [
         c("id", "Vendor ID"),
@@ -219,63 +280,95 @@ var Core = (() => {
         c("bankName", "Bank Name"),
         c("accountNo", "Bank Account No"),
         c("ifsc", "IFSC"),
-        c("active", "Active (Yes/No)", "bool")
+        c("active", "Active (Yes/No)", "bool", true)
       ]
     },
-    vendorItems: {
-      sheet: "VendorItems",
+    items: {
+      sheet: "Items",
       id: "id",
       kind: "data",
-      deriveId: (r) => `${r.vendorId}:${r.itemId}`,
-      cols: [c("id", "Key (auto)"), c("vendorId", "Vendor ID"), c("itemId", "Item ID"), c("price", "Agreed Price", "num")]
+      color: MASTER,
+      autoId: "I",
+      cols: [
+        c("id", "Item ID"),
+        c("name", "Item Name"),
+        c("unit", "Unit"),
+        c("category", "Category"),
+        c("minStock", "Min Stock (low-stock alert)", "num"),
+        c("active", "Active (Yes/No)", "bool", true)
+      ]
     },
-    // ---------- Purchase orders ----------
+    prices: {
+      sheet: "Prices",
+      id: "id",
+      kind: "data",
+      color: MASTER,
+      deriveId: (r) => r.vendorId && r.itemId ? `${r.vendorId}:${r.itemId}` : "",
+      cols: [
+        c("id", "Key (auto)"),
+        c("vendorName", "Vendor Name"),
+        c("itemName", "Item Name"),
+        c("price", "Agreed Price (Rs)", "num"),
+        c("vendorId", "Vendor ID"),
+        c("itemId", "Item ID")
+      ]
+    },
+    // ---------- Written by the app ----------
     pos: {
       sheet: "PurchaseOrders",
       id: "id",
       kind: "data",
+      color: APP,
       cols: [
-        c("id", "PO Key"),
         c("poNo", "PO No"),
         c("date", "PO Date", "date"),
-        c("vendorId", "Vendor ID"),
-        c("terms", "Terms & Conditions"),
-        c("advanceRequired", "Advance Required (Yes/No)", "bool"),
-        c("advanceAmount", "Advance Amount", "num"),
-        c("expectedDate", "Expected Delivery", "date"),
+        c("vendorName", "Vendor"),
         c("status", "Status"),
         c("advanceStatus", "Advance Status"),
+        c("expectedDate", "Expected Delivery", "date"),
+        c("advanceRequired", "Advance Required (Yes/No)", "bool"),
+        c("advanceAmount", "Advance Amount", "num"),
+        c("terms", "Terms & Conditions"),
         c("route", "Approval Route"),
         c("step", "Approval Step", "num"),
         c("sentVia", "Sent Via"),
         c("sentTo", "Sent To"),
         c("createdBy", "Created By"),
-        c("department", "Department")
+        c("department", "Department"),
+        c("vendorId", "Vendor ID"),
+        c("id", "PO Key")
       ]
     },
     poLines: {
       sheet: "POLines",
       id: "id",
       kind: "data",
-      deriveId: (r) => `${r.poId}:${r.itemId}`,
-      cols: [c("id", "Key (auto)"), c("poId", "PO Key"), c("itemId", "Item ID"), c("qty", "Quantity", "num"), c("price", "Price", "num")]
+      color: APP,
+      deriveId: (r) => r.poId && r.itemId ? `${r.poId}:${r.itemId}` : "",
+      cols: [
+        c("poNo", "PO No"),
+        c("itemName", "Item"),
+        c("qty", "Quantity", "num"),
+        c("price", "Price", "num"),
+        c("queryNote", "Price Query to HO"),
+        c("queryStatus", "Query Status"),
+        c("queryBy", "Query Raised By"),
+        c("poId", "PO Key"),
+        c("itemId", "Item ID"),
+        c("id", "Key (auto)")
+      ]
     },
-    poHistory: {
-      sheet: "POHistory",
-      id: "id",
-      kind: "data",
-      cols: [c("id", "Key"), c("poId", "PO Key"), c("date", "Date", "date"), c("by", "By"), c("text", "Event")]
-    },
-    // ---------- Goods receipt ----------
     receipts: {
       sheet: "Receipts",
       id: "id",
       kind: "data",
+      color: APP,
       cols: [
-        c("id", "Receipt Key"),
         c("grnNo", "GRN No"),
-        c("poId", "PO Key"),
-        c("invoiceNo", "Invoice No"),
+        c("type", "Type (Invoice / Opening)"),
+        c("poNo", "PO No"),
+        c("vendorName", "Vendor"),
+        c("invoiceNo", "Invoice No / Reference"),
         c("invoiceDate", "Invoice Date", "date"),
         c("receivedDate", "Received Date (Factory In)", "date"),
         c("subtotal", "Sub-total", "num"),
@@ -283,121 +376,75 @@ var Core = (() => {
         c("grandTotal", "Grand Total", "num"),
         c("advanceAdjusted", "Advance Adjusted", "num"),
         c("payable", "Payable", "num"),
+        c("dueDate", "Payment Due Date", "date"),
         c("accepted", "Accepted by Accounts (Yes/No)", "bool"),
         c("acceptedDate", "Accepted Date", "date"),
         c("invoiceFile", "Invoice File (Drive ID)"),
-        c("createdBy", "Created By")
+        c("createdBy", "Created By"),
+        c("poId", "PO Key"),
+        c("vendorId", "Vendor ID"),
+        c("id", "Receipt Key")
       ]
     },
-    receiptLines: {
-      sheet: "ReceiptLines",
-      id: "id",
-      kind: "data",
-      deriveId: (r) => `${r.receiptId}:${r.itemId}`,
-      cols: [c("id", "Key (auto)"), c("receiptId", "Receipt Key"), c("itemId", "Item ID"), c("qty", "Quantity", "num"), c("price", "Price", "num"), c("taxRate", "Tax %", "num")]
-    },
-    // ---------- Payments ----------
     payments: {
       sheet: "Payments",
       id: "id",
       kind: "data",
+      color: APP,
       cols: [
-        c("id", "Key"),
-        c("kind", "Type"),
+        c("date", "Payment Date", "date"),
+        c("kind", "Type (advance / invoice)"),
+        c("vendorName", "Vendor"),
+        c("poNo", "PO No"),
+        c("amount", "Amount", "num"),
+        c("screenshot", "Screenshot (Drive ID)"),
+        c("paidBy", "Paid By"),
         c("poId", "PO Key"),
         c("receiptId", "Receipt Key"),
-        c("openingId", "Opening Balance Key"),
-        c("amount", "Amount", "num"),
-        c("date", "Payment Date", "date"),
-        c("screenshot", "Screenshot (Drive ID)"),
-        c("paidBy", "Paid By")
+        c("id", "Key")
       ]
     },
-    openings: {
-      sheet: "OpeningBalances",
+    stock: {
+      sheet: "Stock",
       id: "id",
       kind: "data",
-      cols: [c("id", "Key"), c("vendorId", "Vendor ID"), c("ref", "Reference"), c("amount", "Amount", "num"), c("dueDate", "Due Date", "date")]
-    },
-    queries: {
-      sheet: "PriceQueries",
-      id: "id",
-      kind: "data",
-      cols: [c("id", "Key"), c("poId", "PO Key"), c("itemId", "Item ID"), c("note", "Note"), c("raisedBy", "Raised By"), c("date", "Date", "date"), c("status", "Status")]
-    },
-    counters: {
-      sheet: "Counters",
-      id: "id",
-      kind: "config",
-      cols: [c("id", "Counter"), c("value", "Last Number", "num")]
-    },
-    // ---------- Access control & configuration (edit directly in the Sheet) ----------
-    users: {
-      sheet: "Users",
-      id: "loginId",
-      kind: "config",
-      book: "access",
+      color: APP,
       cols: [
-        c("loginId", "Login ID"),
-        c("password", "Password"),
-        c("name", "Full Name"),
-        c("role", "Role"),
-        c("department", "Department"),
-        c("level", "Level", "num"),
-        c("reportsTo", "Reports To (Login ID)"),
-        c("active", "Active (Yes/No)", "bool")
+        c("date", "Date", "date"),
+        c("itemName", "Item"),
+        c("type", "Type (IN / OUT / ADJUST)"),
+        c("qty", "Quantity", "num"),
+        c("toDept", "Issued To (Dept / Purpose)"),
+        c("note", "Note"),
+        c("grnNo", "GRN No"),
+        c("price", "Price", "num"),
+        c("taxRate", "Tax %", "num"),
+        c("by", "By"),
+        c("itemId", "Item ID"),
+        c("receiptId", "Receipt Key"),
+        c("id", "Key")
       ]
     },
-    roles: {
-      sheet: "Roles",
-      id: "role",
-      kind: "config",
-      book: "access",
-      cols: [c("role", "Role"), c("level", "Default Level", "num"), c("department", "Department"), c("description", "Description")]
-    },
-    permissions: {
-      sheet: "Permissions",
-      id: "action",
-      kind: "config",
-      book: "access",
-      cols: [c("action", "Action"), c("roles", "Allowed Roles (comma separated, * = everyone)"), c("minLevel", "Or Level At Least", "num"), c("description", "What it allows")]
-    },
-    approvalRules: {
-      sheet: "ApprovalRules",
-      id: "step",
-      kind: "config",
-      book: "access",
-      cols: [c("step", "Step", "num"), c("fromValue", "Applies When PO Value Above", "num"), c("approverRole", "Approver Role"), c("description", "Note")]
-    },
-    settings: {
-      sheet: "Settings",
-      id: "key",
-      kind: "config",
-      book: "access",
-      cols: [c("key", "Setting"), c("value", "Value"), c("description", "Meaning")]
-    },
-    audit: {
-      sheet: "AuditLog",
+    log: {
+      sheet: "Log",
       id: "id",
       kind: "config",
-      cols: [c("id", "Key"), c("time", "Time"), c("user", "User"), c("role", "Role"), c("action", "Action"), c("detail", "Detail")]
+      color: APP,
+      cols: [c("time", "Time"), c("user", "User"), c("role", "Role"), c("action", "Action"), c("event", "Event"), c("ref", "PO Key"), c("detail", "Detail"), c("id", "Key")]
     }
   };
   var DATA_TABLES = Object.keys(TABLES).filter((k) => TABLES[k].kind === "data");
   var def = (k) => TABLES[k];
-  var bookOf = (d) => {
-    var _a;
-    return (_a = d.book) != null ? _a : "data";
-  };
   var allCols = (d) => d.kind === "data" ? [...d.cols, ...SYSTEM_COLS] : d.cols;
   var truthy = (v) => v === true || /^(yes|y|true|1)$/i.test(String(v != null ? v : "").trim());
   function fromSheet(d, raw) {
     const e = {};
     for (const col of allCols(d)) {
       const v = raw[col.header];
-      if (col.type === "num") e[col.key] = v === "" || v == null ? 0 : Number(v) || 0;
-      else if (col.type === "bool") e[col.key] = truthy(v);
-      else e[col.key] = v == null ? "" : String(v).trim();
+      const blank = v === "" || v == null;
+      if (col.type === "num") e[col.key] = blank ? 0 : Number(v) || 0;
+      else if (col.type === "bool") e[col.key] = blank && col.dflt ? true : truthy(v);
+      else e[col.key] = blank ? "" : String(v).trim();
     }
     if (!e[d.id] && d.deriveId) e[d.id] = d.deriveId(e);
     return e;
@@ -534,48 +581,44 @@ var Core = (() => {
   }
 
   // src/shared/seed.ts
-  var PERMISSION_ROWS = [
-    ["po.save", "Purchase", "Create and edit a PO (draft / rejected)"],
-    ["po.submit", "Purchase", "Submit a PO for approval"],
-    ["po.send", "Purchase", "Send an approved PO to the vendor"],
-    ["po.approve", "Factory Head,CA", "Approve a PO that is waiting for the user's role"],
-    ["po.reject", "Factory Head,CA", "Return a PO that is waiting for the user's role"],
-    ["advance.pay", "Accounts", "Pay / record a PO advance"],
-    ["receipt.create", "Inventory", "Record goods receipt and invoice details"],
-    ["invoice.accept", "Accounts", "Accept (book) an invoice"],
-    ["payment.make", "Accounts", "Record invoice / old-balance payments"],
-    ["opening.add", "Accounts", "Add old pending balances"],
-    ["query.raise", "Inventory,Purchase", "Refer a price difference to HO"],
-    ["master.manage", "HO", "Edit vendors, vendor prices, items and resolve price queries"],
-    ["users.manage", "", "Add / edit users in the app"]
-  ];
+  var caps = (...on) => Object.fromEntries(["cPo", "cAdvance", "cReceive", "cIssue", "cAdjust", "cPay", "cMaster", "cUsers"].map((k) => [k, on.includes(k)]));
   function configSeed() {
     return {
       roles: [
-        { role: "Admin", level: 5, department: "Management", description: "Full control, user management" },
-        { role: "CA", level: 4, department: "Finance", description: "Second-level approver for POs above the limit" },
-        { role: "HO", level: 4, department: "Head Office", description: "Backend master data: vendors, items, prices" },
-        { role: "Factory Head", level: 3, department: "Factory", description: "First-level PO approver" },
-        { role: "Purchase", level: 2, department: "Purchase", description: "Creates POs" },
-        { role: "Accounts", level: 2, department: "Accounts", description: "Advances, invoices, payments" },
-        { role: "Inventory", level: 1, department: "Factory", description: "Goods receipt at the factory" }
+        { role: "Admin", level: 5, approvesAbove: "", ...caps("cPo", "cAdvance", "cReceive", "cIssue", "cAdjust", "cPay", "cMaster", "cUsers") },
+        { role: "CA", level: 4, approvesAbove: "1000000", ...caps() },
+        { role: "HO", level: 4, approvesAbove: "", ...caps("cMaster", "cAdjust") },
+        { role: "Factory Head", level: 3, approvesAbove: "0", ...caps() },
+        { role: "Purchase", level: 2, approvesAbove: "", ...caps("cPo") },
+        { role: "Accounts", level: 2, approvesAbove: "", ...caps("cAdvance", "cPay") },
+        { role: "Inventory", level: 1, approvesAbove: "", ...caps("cReceive", "cIssue") }
       ],
-      // One starter login with NO password: the admin types one into the Users sheet before first use.
+      // One starter login with NO password: the admin types one into the Users tab before first use.
       users: [{ loginId: "admin", password: "", name: "Administrator", role: "Admin", department: "Management", level: 5, reportsTo: "", active: true }],
-      permissions: PERMISSION_ROWS.map(([action, roles, description]) => ({ action, roles, minLevel: 5, description })),
-      approvalRules: [
-        { step: 1, fromValue: 0, approverRole: "Factory Head", description: "Every PO" },
-        { step: 2, fromValue: 1e6, approverRole: "CA", description: "POs above Rs 10 Lac also go to the CA" }
-      ],
       settings: [
         { key: "CompanyName", value: "Little Nap Recliners", description: "Shown in the app header" },
         { key: "MsmeMaxDays", value: "45", description: "Maximum payment days for MSME vendors" },
         { key: "TaxRates", value: "0,5,18", description: "Tax rates offered at goods receipt (%)" },
         { key: "InvoiceTolerance", value: "1", description: "Allowed difference (Rs) between system total and invoice total" },
+        { key: "RecentMonths", value: "6", description: 'The app loads settled POs/stock from the last N months (open items always load). "Load full history" in the app shows everything' },
         { key: "DriveFolderId", value: "", description: "Drive folder for uploads (filled in automatically)" }
-      ],
-      counters: [{ id: "po", value: 0 }, { id: "grn", value: 0 }]
+      ]
     };
+  }
+
+  // src/shared/approval.ts
+  function approversOf(roles) {
+    return roles.filter((r) => {
+      var _a;
+      return String((_a = r.approvesAbove) != null ? _a : "").trim() !== "" && Number.isFinite(Number(r.approvesAbove));
+    }).map((r) => ({ role: r.role, above: Number(r.approvesAbove), level: Number(r.level) || 0 })).sort((a, b) => a.above - b.above || a.level - b.level);
+  }
+  function routeFor(approvers, value) {
+    const out = [];
+    approvers.filter((a) => value > a.above).forEach((a) => {
+      if (out.indexOf(a.role) < 0) out.push(a.role);
+    });
+    return out;
   }
 
   // src/shared/core.ts
@@ -589,20 +632,35 @@ var Core = (() => {
   var MAX_FAILS = 5;
   var LOCK_SECONDS = 15 * 60;
   var MAX_FILE_BYTES = 8 * 1024 * 1024;
-  var ACTION_TABLES = {
-    "po.save": ["pos", "poLines", "poHistory"],
-    "po.submit": ["pos", "poHistory"],
-    "po.approve": ["pos", "poHistory"],
-    "po.reject": ["pos", "poHistory"],
-    "po.send": ["pos", "poHistory"],
-    "advance.pay": ["pos", "poHistory", "payments"],
-    "receipt.create": ["receipts", "receiptLines", "pos", "poLines", "poHistory"],
-    "invoice.accept": ["receipts", "poHistory"],
-    "payment.make": ["payments", "poHistory"],
-    "opening.add": ["openings"],
-    "query.raise": ["queries"],
-    "master.manage": ["vendors", "vendorItems", "items", "queries"]
+  var ADMIN_LEVEL = 5;
+  var CAPS = {
+    cPo: ["po.save", "po.submit", "po.send", "query.raise"],
+    cAdvance: ["advance.pay"],
+    cReceive: ["receipt.create", "query.raise"],
+    cIssue: ["stock.issue"],
+    cAdjust: ["stock.adjust"],
+    cPay: ["invoice.accept", "payment.make", "opening.add"],
+    cMaster: ["master.manage"],
+    cUsers: ["users.manage"]
   };
+  var ACTIONS = {
+    "po.save": { tables: ["pos", "poLines"], edit: ["pos", "poLines"] },
+    "po.submit": { tables: ["pos"], edit: ["pos"] },
+    "po.approve": { tables: ["pos"], edit: ["pos"] },
+    "po.reject": { tables: ["pos"], edit: ["pos"] },
+    "po.send": { tables: ["pos"], edit: ["pos"] },
+    "advance.pay": { tables: ["pos", "payments"], edit: ["pos"] },
+    "receipt.create": { tables: ["receipts", "stock", "poLines"], edit: ["poLines"] },
+    "invoice.accept": { tables: ["receipts"], edit: ["receipts"] },
+    "payment.make": { tables: ["payments"], edit: [] },
+    "opening.add": { tables: ["receipts"], edit: [] },
+    "query.raise": { tables: ["poLines"], edit: ["poLines"] },
+    "stock.issue": { tables: ["stock"], edit: [] },
+    "stock.adjust": { tables: ["stock"], edit: [] },
+    "master.manage": { tables: ["vendors", "items", "prices", "poLines"], edit: ["vendors", "items", "prices", "poLines"] }
+  };
+  var DELETABLE = { "po.save": ["poLines"], "master.manage": ["prices"] };
+  var APPLY_ORDER = ["vendors", "items", "prices", "pos", "poLines", "receipts", "payments", "stock"];
   var Db = class {
     constructor(host) {
       this.host = host;
@@ -611,33 +669,25 @@ var Core = (() => {
     rows(k) {
       if (!this.cache[k]) {
         const d = def(k);
-        this.cache[k] = this.host.read(bookOf(d), d.sheet).map((raw) => ({ ...fromSheet(d, raw), __row: raw.__row }));
+        this.cache[k] = this.host.read(d.sheet).map((raw) => ({ ...fromSheet(d, raw), __row: raw.__row }));
       }
       return this.cache[k];
     }
     find(k, id) {
-      return this.rows(k).find((r) => r[def(k).id] === id);
+      return id ? this.rows(k).find((r) => r[def(k).id] === id) : void 0;
     }
     put(k, e) {
       const d = def(k);
       const rows = this.rows(k);
       const i = rows.findIndex((r) => r[d.id] === e[d.id]);
       if (i >= 0) {
-        this.host.update(bookOf(d), d.sheet, rows[i].__row, toSheet(d, e));
+        this.host.update(d.sheet, rows[i].__row, toSheet(d, e));
         rows[i] = { ...e, __row: rows[i].__row };
-      } else rows.push({ ...e, __row: this.host.append(bookOf(d), d.sheet, toSheet(d, e)) });
+      } else rows.push({ ...e, __row: this.host.append(d.sheet, toSheet(d, e)) });
     }
-    del(k, id) {
-      const d = def(k);
-      const rows = this.rows(k);
-      const i = rows.findIndex((r) => r[d.id] === id);
-      if (i < 0) return;
-      this.host.remove(bookOf(d), d.sheet, rows[i].__row);
-      const gone = rows[i].__row;
-      rows.splice(i, 1);
-      rows.forEach((r) => {
-        if (r.__row > gone) r.__row -= 1;
-      });
+    /** Rewrite a row that is already loaded (used to repair rows typed by hand). */
+    touch(k, row) {
+      this.host.update(def(k).sheet, row.__row, toSheet(def(k), row));
     }
   };
   var clean = (e) => {
@@ -645,6 +695,7 @@ var Core = (() => {
     return rest;
   };
   var lc = (s) => String(s != null ? s : "").trim().toLowerCase();
+  var r2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
   function settingsOf(db) {
     const o = {};
     db.rows("settings").forEach((r) => {
@@ -654,28 +705,29 @@ var Core = (() => {
   }
   var hashPw = (loginId, pw) => "sha256:" + sha256(lc(loginId) + ":" + pw);
   function permissionsFor(db, role, level) {
+    const r = db.rows("roles").find((x) => lc(x.role) === lc(role));
     const out = [];
-    db.rows("permissions").forEach((p) => {
-      const roles = String(p.roles).split(",").map(lc).filter(Boolean);
-      if (roles.includes("*") || roles.includes(lc(role)) || p.minLevel > 0 && level >= p.minLevel) out.push(p.action);
+    const add = (a) => a.forEach((x) => {
+      if (out.indexOf(x) < 0) out.push(x);
     });
+    for (const cap of Object.keys(CAPS)) if (level >= ADMIN_LEVEL || r && r[cap]) add(CAPS[cap]);
+    if (r && approversOf([r]).length) add(["po.approve", "po.reject"]);
     return out;
   }
   function buildUser(db, u) {
     const roleRow = db.rows("roles").find((r) => lc(r.role) === lc(u.role));
     const level = u.level || (roleRow == null ? void 0 : roleRow.level) || 0;
-    return { loginId: u.loginId, name: u.name || u.loginId, role: u.role, department: u.department || (roleRow == null ? void 0 : roleRow.department) || "", level, permissions: permissionsFor(db, u.role, level) };
+    return { loginId: u.loginId, name: u.name || u.loginId, role: (roleRow == null ? void 0 : roleRow.role) || u.role, department: u.department || "", level, permissions: permissionsFor(db, u.role, level) };
   }
   function login(host, db, req) {
     var _a;
     const id = lc(req.loginId);
     const pw = String((_a = req.password) != null ? _a : "");
     if (!id || !pw) throw new ApiError("Enter Login ID and password", "AUTH");
-    const pending = db.rows("users").find((r) => lc(r.loginId) === id);
-    if (pending && pending.active && !pending.password) throw new ApiError("No password has been set for this login yet. Ask the Admin to type one in the Users sheet.", "AUTH");
     const failKey = "fail:" + id;
     if (Number(host.cacheGet(failKey) || 0) >= MAX_FAILS) throw new ApiError("Too many wrong attempts. Try again in 15 minutes.", "AUTH");
     const u = db.rows("users").find((r) => lc(r.loginId) === id);
+    if (u && u.active && !u.password) throw new ApiError("No password has been set for this login yet. Ask the Admin to type one in the Users tab.", "AUTH");
     let ok = false;
     if (u && u.active && u.password) {
       if (u.password.startsWith("sha256:")) ok = u.password === hashPw(u.loginId, pw);
@@ -700,30 +752,146 @@ var Core = (() => {
     return buildUser(db, u);
   }
   var need = (user, perm) => {
-    if (!user.permissions.includes(perm)) throw new ApiError(`Your role (${user.role}) is not allowed to do this (${perm})`, "FORBIDDEN");
+    if (user.permissions.indexOf(perm) < 0) throw new ApiError(`Your role (${user.role}) is not allowed to do this (${perm})`, "FORBIDDEN");
   };
-  function bootstrap(host, db, user) {
+  var signed = (r) => r.type === "IN" ? r.qty : r.type === "OUT" ? -r.qty : r.qty;
+  function balances(db) {
+    const b = {};
+    db.rows("stock").forEach((r) => {
+      if (r.itemId) b[r.itemId] = r2((b[r.itemId] || 0) + signed(r));
+    });
+    return b;
+  }
+  function receivedQty(db, poId, itemId) {
+    const ids = new Set(db.rows("receipts").filter((r) => r.poId === poId).map((r) => r.id));
+    return db.rows("stock").filter((s) => s.type === "IN" && s.itemId === itemId && ids.has(s.receiptId)).reduce((a, s) => a + s.qty, 0);
+  }
+  function monthsAgo(today, n) {
+    const d = /* @__PURE__ */ new Date(today + "T00:00:00Z");
+    d.setUTCMonth(d.getUTCMonth() - n);
+    return d.toISOString().slice(0, 10);
+  }
+  function repairHandTypedRows(host, db) {
+    const now = host.now();
+    const stamp = (r) => {
+      r._v = (r._v || 0) + 1;
+      r._at = now;
+      r._by = "sheet";
+    };
     for (const k of ["vendors", "items"]) {
       const d = def(k);
       const rows = db.rows(k);
       let n = rows.reduce((m, r) => Math.max(m, Number(String(r[d.id]).replace(/\D/g, "")) || 0), 0);
-      rows.filter((r) => !r[d.id] && (r.name || r.contact)).forEach((r) => {
+      rows.filter((r) => !r[d.id] && r.name).forEach((r) => {
         r[d.id] = d.autoId + ++n;
-        db.put(k, { ...r, _v: (r._v || 0) + 1, _at: host.now(), _by: "sheet" });
+        stamp(r);
+        db.touch(k, r);
       });
     }
-    const data = {};
-    for (const k of DATA_TABLES) data[k] = db.rows(k).filter((r) => r[def(k).id]).map(clean);
+    const vendors = db.rows("vendors"), items = db.rows("items");
+    for (const p of db.rows("prices")) {
+      let changed = false;
+      if (!p.vendorId && p.vendorName) {
+        const v2 = vendors.find((x) => lc(x.name) === lc(p.vendorName));
+        if (v2) {
+          p.vendorId = v2.id;
+          changed = true;
+        }
+      }
+      if (!p.itemId && p.itemName) {
+        const i2 = items.find((x) => lc(x.name) === lc(p.itemName));
+        if (i2) {
+          p.itemId = i2.id;
+          changed = true;
+        }
+      }
+      const v = vendors.find((x) => x.id === p.vendorId), i = items.find((x) => x.id === p.itemId);
+      if (v && p.vendorName !== v.name) {
+        p.vendorName = v.name;
+        changed = true;
+      }
+      if (i && p.itemName !== i.name) {
+        p.itemName = i.name;
+        changed = true;
+      }
+      const id = p.vendorId && p.itemId ? `${p.vendorId}:${p.itemId}` : "";
+      if (id && p.id !== id) {
+        p.id = id;
+        changed = true;
+      }
+      if (changed) {
+        stamp(p);
+        db.touch("prices", p);
+      }
+    }
+  }
+  function bootstrap(host, db, user, all) {
+    repairHandTypedRows(host, db);
     const s = settingsOf(db);
+    const recent = Math.max(1, Number(s.RecentMonths) || 6);
+    const cutoff = monthsAgo(host.now().slice(0, 10), recent);
+    const pos = db.rows("pos").filter((r) => r.id);
+    const lines = db.rows("poLines").filter((r) => r.id);
+    const receipts = db.rows("receipts").filter((r) => r.id);
+    const payments = db.rows("payments").filter((r) => r.id);
+    const stock = db.rows("stock").filter((r) => r.id);
+    const group = (rows, key) => {
+      const m = /* @__PURE__ */ new Map();
+      rows.forEach((r) => {
+        const k = key(r);
+        if (k) (m.get(k) || m.set(k, []).get(k)).push(r);
+      });
+      return m;
+    };
+    const linesByPO = group(lines, (l) => l.poId);
+    const receiptsByPO = group(receipts, (r) => r.poId);
+    const rcptPO = new Map(receipts.map((r) => [r.id, r.poId]));
+    const inQty = /* @__PURE__ */ new Map();
+    stock.forEach((x) => {
+      const po = x.type === "IN" ? rcptPO.get(x.receiptId) : "";
+      if (po) inQty.set(po + ":" + x.itemId, (inQty.get(po + ":" + x.itemId) || 0) + x.qty);
+    });
+    const paid = /* @__PURE__ */ new Map();
+    payments.forEach((p) => {
+      if (p.receiptId) paid.set(p.receiptId, (paid.get(p.receiptId) || 0) + p.amount);
+    });
+    const settledReceipt = (r) => r.accepted && (paid.get(r.id) || 0) >= r.payable - 0.01;
+    const settledPO = (po) => {
+      const ls = linesByPO.get(po.id) || [];
+      return po.status === "Sent to Vendor" && ls.length > 0 && ls.every((l) => (inQty.get(po.id + ":" + l.itemId) || 0) >= l.qty) && (receiptsByPO.get(po.id) || []).every(settledReceipt);
+    };
+    const poIn = new Set(pos.filter((p) => all || p.date >= cutoff || !settledPO(p)).map((p) => p.id));
+    const rcIn = new Set(receipts.filter((r) => r.poId ? poIn.has(r.poId) : all || r.invoiceDate >= cutoff || !settledReceipt(r)).map((r) => r.id));
+    const stockOut = stock.filter((x) => x.type === "IN" ? rcIn.has(x.receiptId) : all || x.date >= cutoff);
+    const full = balances(db);
+    const shown = {};
+    stockOut.forEach((x) => {
+      shown[x.itemId] = r2((shown[x.itemId] || 0) + signed(x));
+    });
+    const stockBase = {};
+    Object.keys(full).forEach((k) => {
+      stockBase[k] = r2(full[k] - (shown[k] || 0));
+    });
+    const data = {
+      items: db.rows("items").filter((r) => r.id).map(clean),
+      vendors: db.rows("vendors").filter((r) => r.id).map(clean),
+      prices: db.rows("prices").filter((r) => r.id).map(clean),
+      pos: pos.filter((p) => poIn.has(p.id)).map(clean),
+      poLines: lines.filter((l) => poIn.has(l.poId)).map(clean),
+      receipts: receipts.filter((r) => rcIn.has(r.id)).map(clean),
+      payments: payments.filter((p) => p.receiptId ? rcIn.has(p.receiptId) : poIn.has(p.poId)).map(clean),
+      stock: stockOut.map(clean)
+    };
     delete s.DriveFolderId;
+    const roles = db.rows("roles").map(clean);
     return {
       user,
-      config: {
-        settings: s,
-        roles: db.rows("roles").map(clean),
-        approvalRules: db.rows("approvalRules").map(clean).sort((a, b) => a.step - b.step)
-      },
-      data
+      config: { settings: s, roles, approvers: approversOf(roles) },
+      data,
+      stockBase,
+      partial: !all && (poIn.size < pos.length || rcIn.size < receipts.length || stockOut.length < stock.length),
+      cutoff,
+      stamp: host.stamp()
     };
   }
   function sanitize(k, row) {
@@ -742,49 +910,62 @@ var Core = (() => {
     if (d.kind === "data") out._v = row._v === void 0 || row._v === null ? void 0 : Number(row._v);
     return out;
   }
+  var View = class {
+    constructor(db, ops) {
+      this.db = db;
+      this.ops = ops;
+    }
+    get(k, id) {
+      for (let i = this.ops.length - 1; i >= 0; i--) {
+        const o = this.ops[i];
+        if (o.table !== k) continue;
+        if (o.t === "delete" && o.id === id) return void 0;
+        if (o.t === "upsert" && o.row[def(k).id] === id) return o.row;
+      }
+      return this.db.find(k, id);
+    }
+    ups(k) {
+      return this.ops.filter((o) => o.t === "upsert" && o.table === k).map((o) => o.row);
+    }
+    fresh(k) {
+      return this.ups(k).filter((r) => !this.db.find(k, r[def(k).id]));
+    }
+    lines(poId) {
+      const m = /* @__PURE__ */ new Map();
+      this.db.rows("poLines").filter((l) => l.poId === poId).forEach((l) => m.set(l.id, l));
+      this.ops.forEach((o) => {
+        if (o.table === "poLines") {
+          if (o.t === "delete") m.delete(o.id);
+          else if (o.row.poId === poId) m.set(o.row.id, o.row);
+        }
+      });
+      return Array.from(m.values());
+    }
+  };
+  var same = (a, b, keys) => keys.every((k) => a[k] === b[k]);
   var PENDING = (role) => "Pending " + role;
-  function routeFor(rules, value) {
-    const out = [];
-    [...rules].sort((a, b) => a.step - b.step).filter((r) => value > r.fromValue && r.approverRole).forEach((r) => {
-      if (out[out.length - 1] !== r.approverRole) out.push(r.approverRole);
-    });
-    return out;
-  }
-  function poValueOf(db, ops, poId) {
-    const lines = /* @__PURE__ */ new Map();
-    db.rows("poLines").filter((l) => l.poId === poId).forEach((l) => lines.set(l.id, l));
-    ops.forEach((o) => {
-      if (o.table !== "poLines") return;
-      if (o.t === "delete") lines.delete(o.id);
-      else if (o.row.poId === poId) lines.set(o.row.id, o.row);
-    });
-    let v = 0;
-    lines.forEach((l) => {
-      v += l.qty * l.price;
-    });
-    return Math.round(v * 100) / 100;
-  }
+  var PO_FROZEN = ["vendorId", "terms", "expectedDate", "advanceRequired", "advanceAmount", "route", "date"];
   function guards(action, user, ops, db) {
-    var _a, _b, _c;
-    const ups = (k) => ops.filter((o) => o.t === "upsert" && o.table === k).map((o) => o.row);
-    const rules = db.rows("approvalRules");
-    const FROZEN = ["vendorId", "terms", "expectedDate", "advanceRequired", "advanceAmount", "route", "date"];
-    for (const p of ups("pos")) {
+    const v = new View(db, ops);
+    const bad = (m, code = "FORBIDDEN") => {
+      throw new ApiError(m, code);
+    };
+    const approvers = approversOf(db.rows("roles"));
+    for (const p of v.ups("pos")) {
       const cur = db.find("pos", p.id);
-      const bad = (m) => {
-        throw new ApiError(m, "FORBIDDEN");
-      };
       if (action === "po.save" || action === "po.submit") {
         if (cur && cur.status !== "Draft" && cur.status !== "Rejected") bad("This PO can no longer be edited");
         if (action === "po.submit" && !cur) bad("Save the PO first");
+        if (!db.find("vendors", p.vendorId)) bad("Unknown vendor");
         if (p.status === "Draft" || cur && cur.status === "Rejected" && p.status === "Rejected") continue;
-        const route = routeFor(rules, poValueOf(db, ops, p.id));
+        const value = r2(v.lines(p.id).reduce((a, l) => a + l.qty * l.price, 0));
+        const route = routeFor(approvers, value);
         const want = route.length ? PENDING(route[0]) : "Approved";
-        if (p.status !== want || p.route !== route.join(",") || p.step !== (route.length ? 0 : route.length)) bad("Approval route does not match the ApprovalRules sheet");
+        if (p.status !== want || p.route !== route.join(",") || p.step !== 0) bad("Approval route does not match the Roles tab (Approves POs above)");
         if (!route.length && p.advanceStatus !== (p.advanceRequired ? "Requested" : "Not Required")) bad("Advance status is wrong");
       } else if (action === "po.approve" || action === "po.reject") {
         if (!cur || lc(cur.status) !== lc(PENDING(user.role))) bad(`This PO is not waiting for the ${user.role}`);
-        FROZEN.forEach((f) => {
+        PO_FROZEN.forEach((f) => {
           if (cur[f] !== p[f]) bad("Only the approval status can change here");
         });
         if (action === "po.reject") {
@@ -798,149 +979,239 @@ var Core = (() => {
         if (want === "Approved" && p.advanceStatus !== (cur.advanceRequired ? "Requested" : "Not Required")) bad("Advance status is wrong");
       } else if (action === "po.send") {
         if (!cur || cur.status !== "Approved" || cur.advanceStatus === "Requested" || p.status !== "Sent to Vendor") bad("PO cannot be sent now");
-        FROZEN.forEach((f) => {
+        PO_FROZEN.forEach((f) => {
           if (cur[f] !== p[f]) bad("Only sending details can change here");
         });
       } else if (action === "advance.pay") {
-        if (!cur || cur.advanceStatus !== "Requested" || !["Advance Paid", "Fully Paid"].includes(p.advanceStatus) || p.status !== cur.status) bad("No advance is pending for this PO");
-        FROZEN.forEach((f) => {
+        if (!cur || cur.advanceStatus !== "Requested" || ["Advance Paid", "Fully Paid"].indexOf(p.advanceStatus) < 0 || p.status !== cur.status) bad("No advance is pending for this PO");
+        PO_FROZEN.forEach((f) => {
           if (cur[f] !== p[f]) bad("Only the advance status can change here");
         });
-      } else if (action === "receipt.create") {
-        if (!cur || cur.status !== "Sent to Vendor" || p.status !== cur.status || p.vendorId !== cur.vendorId || p.route !== cur.route) bad("PO is not open for receipt");
+      }
+    }
+    if (action === "po.save") {
+      for (const l of v.ups("poLines")) {
+        if (l.id !== `${l.poId}:${l.itemId}`) bad("Invalid PO line");
+        const cur = db.find("poLines", l.id);
+        if (cur) {
+          if (cur.price !== l.price || cur.itemId !== l.itemId) bad("PO price cannot be changed. Ask HO to update the vendor price.");
+          continue;
+        }
+        const po = v.get("pos", l.poId);
+        const pr = po && db.find("prices", `${po.vendorId}:${l.itemId}`);
+        if (!pr || pr.price !== l.price) bad("PO price must match the vendor price list");
+        if (!(l.qty > 0)) bad("Quantity must be more than zero");
       }
     }
     if (action === "advance.pay") {
-      if (ups("payments").some((x) => x.kind !== "advance")) throw new ApiError("Only advance payments here", "FORBIDDEN");
-      if (!ups("pos").length) throw new ApiError("Nothing to pay");
+      const pays = v.ups("payments");
+      if (!pays.length || !v.ups("pos").length) bad("Nothing to pay");
+      if (pays.some((x) => x.kind !== "advance" || !(x.amount > 0) || !db.find("pos", x.poId))) bad("Only advance payments here");
     }
-    if (action === "payment.make") {
-      for (const pay of ups("payments")) {
-        if (pay.kind === "advance") throw new ApiError("Use the advance flow for advances", "FORBIDDEN");
-        if (pay.amount <= 0) throw new ApiError("Amount must be positive");
-        if (pay.kind === "invoice") {
-          const r = db.find("receipts", pay.receiptId);
-          if (!r || !r.accepted) throw new ApiError("Accept the invoice before paying", "FORBIDDEN");
-          const paid = db.rows("payments").filter((x) => x.receiptId === r.id).reduce((a, x) => a + x.amount, 0);
-          if (paid + pay.amount > r.payable + 0.01) throw new ApiError("Payment is more than the balance payable");
-        }
-        if (pay.kind === "opening") {
-          const o = db.find("openings", pay.openingId);
-          const paid = db.rows("payments").filter((x) => x.openingId === pay.openingId).reduce((a, x) => a + x.amount, 0);
-          if (!o || paid + pay.amount > o.amount + 0.01) throw new ApiError("Payment is more than the balance payable");
-        }
+    if (action === "receipt.create") {
+      const rs = v.fresh("receipts");
+      if (rs.length !== 1) bad("One receipt at a time");
+      const r = rs[0];
+      const po = db.find("pos", r.poId);
+      if (!po || po.status !== "Sent to Vendor" || r.type !== "Invoice" || r.accepted || r.vendorId !== po.vendorId) bad("PO is not open for receipt");
+      if (!r.invoiceNo) bad("Enter the invoice number", "ERROR");
+      if (db.rows("receipts").some((x) => lc(x.invoiceNo) === lc(r.invoiceNo) && x.vendorId === r.vendorId && x.type === "Invoice")) bad("This invoice number is already booked for this vendor", "ERROR");
+      const ins = v.ups("stock");
+      if (!ins.length) bad("Select the items received", "ERROR");
+      let sub = 0, tax = 0;
+      for (const s of ins) {
+        const pl = v.get("poLines", `${po.id}:${s.itemId}`);
+        if (s.type !== "IN" || s.receiptId !== r.id || s.id !== `${r.id}:${s.itemId}` || !pl) bad("Invalid stock-in row");
+        if (pl.price !== s.price) bad("Receipt price must equal the PO price");
+        if (!(s.qty > 0) || s.qty > pl.qty - receivedQty(db, po.id, s.itemId) + 1e-9) bad("Received quantity is more than the pending PO quantity", "ERROR");
+        sub += s.qty * s.price;
+        tax += s.qty * s.price * s.taxRate / 100;
+      }
+      const tol = Number(settingsOf(db).InvoiceTolerance || 1);
+      if (Math.abs(sub + tax - r.grandTotal) > Math.min(0.05, tol)) bad("Receipt total does not match its lines", "ERROR");
+      const avail = Math.max(0, db.rows("payments").filter((x) => x.poId === po.id && x.kind === "advance").reduce((a, x) => a + x.amount, 0) - db.rows("receipts").filter((x) => x.poId === po.id).reduce((a, x) => a + x.advanceAdjusted, 0));
+      const adj = Math.min(r.grandTotal, avail);
+      if (Math.abs(r.advanceAdjusted - adj) > 0.01 || Math.abs(r.payable - (r.grandTotal - r.advanceAdjusted)) > 0.01) bad("Advance adjustment is wrong");
+      for (const l of v.ups("poLines")) {
+        const cur = db.find("poLines", l.id);
+        if (!cur || cur.poId !== po.id || !same(cur, l, ["price", "itemId", "queryNote", "queryStatus"])) bad("Only the PO quantity may change here");
       }
     }
     if (action === "invoice.accept") {
-      for (const r of ups("receipts")) {
+      for (const r of v.ups("receipts")) {
         const cur = db.find("receipts", r.id);
-        if (!cur || cur.accepted || !r.accepted || cur.grandTotal !== r.grandTotal || cur.payable !== r.payable) throw new ApiError("Invoice cannot be accepted", "FORBIDDEN");
+        if (!cur || cur.accepted || !r.accepted || !same(cur, r, ["grandTotal", "payable", "poId", "vendorId", "invoiceNo", "type"])) bad("Invoice cannot be accepted");
       }
     }
-    for (const l of ups("poLines")) {
-      const cur = db.find("poLines", l.id);
-      if (cur) {
-        if (cur.price !== l.price) throw new ApiError("PO price cannot be changed. Ask HO to update the vendor price.", "FORBIDDEN");
-        continue;
+    if (action === "opening.add") {
+      const rs = v.ups("receipts");
+      if (!rs.length) bad("Nothing to add");
+      for (const r of rs) {
+        if (db.find("receipts", r.id) || r.type !== "Opening" || r.poId || !r.accepted || !(r.payable > 0) || r.payable !== r.grandTotal || !r.invoiceNo || !db.find("vendors", r.vendorId)) bad("Invalid old balance", "ERROR");
       }
-      const po = (_a = ups("pos").find((p) => p.id === l.poId)) != null ? _a : db.find("pos", l.poId);
-      const vi = po && db.find("vendorItems", `${po.vendorId}:${l.itemId}`);
-      if (!vi || vi.price !== l.price) throw new ApiError("PO price must match the vendor price list", "FORBIDDEN");
     }
-    for (const l of ups("receiptLines")) {
-      const rc = (_b = ups("receipts").find((r) => r.id === l.receiptId)) != null ? _b : db.find("receipts", l.receiptId);
-      const pl = rc && ((_c = ups("poLines").find((x) => x.id === `${rc.poId}:${l.itemId}`)) != null ? _c : db.find("poLines", `${rc.poId}:${l.itemId}`));
-      if (!pl || pl.price !== l.price) throw new ApiError("Receipt price must equal the PO price", "FORBIDDEN");
+    if (action === "payment.make") {
+      for (const pay of v.ups("payments")) {
+        const r = db.find("receipts", pay.receiptId);
+        if (pay.kind !== "invoice" || !r || !r.accepted) bad("Accept the invoice before paying");
+        if (!(pay.amount > 0)) bad("Amount must be positive", "ERROR");
+        const paid = db.rows("payments").filter((x) => x.receiptId === r.id).reduce((a, x) => a + x.amount, 0);
+        if (paid + pay.amount > r.payable + 0.01) bad("Payment is more than the balance payable", "ERROR");
+      }
     }
-    if (action === "receipt.create") {
-      const tol = Number(settingsOf(db).InvoiceTolerance || 1);
-      for (const r of ups("receipts")) {
-        if (db.find("receipts", r.id)) throw new ApiError("Receipts cannot be edited", "FORBIDDEN");
-        const lines = ups("receiptLines").filter((l) => l.receiptId === r.id);
-        const sub = lines.reduce((a, l) => a + l.qty * l.price, 0);
-        const tax = lines.reduce((a, l) => a + l.qty * l.price * l.taxRate / 100, 0);
-        if (!lines.length || Math.abs(sub + tax - r.grandTotal) > 0.05) throw new ApiError("Receipt total does not match its lines");
+    if (action === "query.raise") {
+      for (const l of v.ups("poLines")) {
+        const cur = db.find("poLines", l.id);
+        if (!cur || !same(cur, l, ["qty", "price", "itemId", "poId"]) || l.queryStatus !== "Open" || !l.queryNote) bad("Invalid price query", "ERROR");
+      }
+    }
+    if (action === "stock.issue" || action === "stock.adjust") {
+      const bal = balances(db);
+      const out = {};
+      for (const s of v.ups("stock")) {
+        const item = db.find("items", s.itemId);
+        if (!item || !item.active) bad("Unknown or inactive item", "ERROR");
+        if (!s.date) bad("Enter the date", "ERROR");
+        if (action === "stock.issue") {
+          if (s.type !== "OUT" || !(s.qty > 0) || !s.toDept) bad("Enter quantity and who the stock is issued to", "ERROR");
+          out[s.itemId] = (out[s.itemId] || 0) + s.qty;
+          if (out[s.itemId] > (bal[s.itemId] || 0) + 1e-9) bad(`Only ${bal[s.itemId] || 0} ${item.unit} of ${item.name} in stock`, "ERROR");
+        } else if (s.type !== "ADJUST" || !s.qty || !s.note) bad("Adjustments need a quantity (+/-) and a reason", "ERROR");
+      }
+    }
+    if (action === "master.manage") {
+      for (const l of v.ups("poLines")) {
+        const cur = db.find("poLines", l.id);
+        if (!cur || !same(cur, l, ["qty", "price", "itemId", "poId", "queryNote", "queryBy"]) || l.queryStatus !== "Resolved") bad("HO can only resolve price queries here");
+      }
+      for (const p of v.ups("prices")) {
+        if (!db.find("vendors", p.vendorId) && !v.get("vendors", p.vendorId)) bad("Unknown vendor in price list", "ERROR");
+        if (!db.find("items", p.itemId) && !v.get("items", p.itemId)) bad("Unknown item in price list", "ERROR");
+        if (p.id !== `${p.vendorId}:${p.itemId}` || p.price < 0) bad("Invalid price row", "ERROR");
       }
     }
   }
-  function nextNumber(db, name, prefix) {
-    const cur = db.find("counters", name);
-    const used = db.rows(name === "po" ? "pos" : "receipts").reduce((m, r) => Math.max(m, Number(String(r[name === "po" ? "poNo" : "grnNo"]).replace(/\D/g, "")) || 0), 0);
-    const v = Math.max((cur == null ? void 0 : cur.value) || 0, used) + 1;
-    db.put("counters", { id: name, value: v });
-    return prefix + String(v).padStart(4, "0");
+  function fillNames(db, k, e, v) {
+    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k;
+    const vendor = (id) => {
+      var _a2;
+      return (_a2 = db.find("vendors", id) || v.get("vendors", id)) == null ? void 0 : _a2.name;
+    };
+    const item = (id) => {
+      var _a2;
+      return (_a2 = db.find("items", id) || v.get("items", id)) == null ? void 0 : _a2.name;
+    };
+    const po = (id) => db.find("pos", id) || v.get("pos", id);
+    if ("itemName" in e || k === "stock" || k === "poLines" || k === "prices") e.itemName = (_b = (_a = item(e.itemId)) != null ? _a : e.itemName) != null ? _b : "";
+    if (k === "prices") e.vendorName = (_d = (_c = vendor(e.vendorId)) != null ? _c : e.vendorName) != null ? _d : "";
+    if (k === "pos") e.vendorName = (_e = vendor(e.vendorId)) != null ? _e : "";
+    if (k === "poLines" || k === "receipts" || k === "payments") {
+      const p = po(e.poId);
+      if (p) {
+        e.poNo = p.poNo || e.poNo || "";
+        if (k !== "poLines") e.vendorName = (_f = vendor(p.vendorId)) != null ? _f : "";
+      }
+    }
+    if (k === "receipts") e.vendorName = (_h = (_g = vendor(e.vendorId)) != null ? _g : e.vendorName) != null ? _h : "";
+    if (k === "payments" && e.receiptId) {
+      const r = db.find("receipts", e.receiptId);
+      if (r) {
+        e.vendorName = (_i = vendor(r.vendorId)) != null ? _i : "";
+        e.poNo = e.poNo || r.invoiceNo;
+      }
+    }
+    if (k === "stock" && e.receiptId) e.grnNo = (_k = (_j = db.find("receipts", e.receiptId) || v.get("receipts", e.receiptId)) == null ? void 0 : _j.grnNo) != null ? _k : "";
   }
-  function commit(host, db, user, name, rawOps) {
-    const tables = ACTION_TABLES[name];
-    if (!tables) throw new ApiError("Unknown action " + name);
+  function nextNo(db, table, key, prefix) {
+    const used = db.rows(table).reduce((m, r) => Math.max(m, r[key] ? Number(String(r[key]).replace(/\D/g, "")) || 0 : 0), 0);
+    return prefix + String(used + 1).padStart(4, "0");
+  }
+  function commit(host, db, user, name, rawOps, note) {
+    const spec = ACTIONS[name];
+    if (!spec) throw new ApiError("Unknown action " + name);
     need(user, name);
-    if (!Array.isArray(rawOps) || rawOps.length > 200) throw new ApiError("Too many changes in one request");
-    const ops = rawOps.map((o) => ({ t: o.t, table: o.table, id: o.id, row: o.row ? sanitizeRow(o.table, o.row) : void 0 }));
+    if (!Array.isArray(rawOps) || rawOps.length > 300) throw new ApiError("Too many changes in one request");
+    const ops = rawOps.map((o) => {
+      if (!(o.table in TABLES) || TABLES[o.table].kind !== "data") throw new ApiError("Unknown table " + o.table);
+      return { t: o.t, table: o.table, id: o.id, row: o.row ? sanitize(o.table, o.row) : void 0 };
+    });
     for (const o of ops) {
-      if (!tables.includes(o.table)) throw new ApiError(`${name} may not change ${o.table}`, "FORBIDDEN");
+      if (spec.tables.indexOf(o.table) < 0) throw new ApiError(`${name} may not change ${o.table}`, "FORBIDDEN");
+      if (o.t === "delete" && (DELETABLE[name] || []).indexOf(o.table) < 0) throw new ApiError("This cannot be deleted", "FORBIDDEN");
       if (o.t !== "upsert" && o.t !== "delete") throw new ApiError("Bad operation");
-      if (o.t === "delete" && (o.table === "poHistory" || o.table === "payments")) throw new ApiError("This cannot be deleted", "FORBIDDEN");
       if (o.t === "upsert" && !o.row[def(o.table).id]) throw new ApiError("Row without an ID");
     }
     for (const o of ops) {
       if (o.t !== "upsert") continue;
       const cur = db.find(o.table, o.row[def(o.table).id]);
-      if (cur && (o.table === "payments" || o.table === "poHistory" || o.table === "receiptLines")) throw new ApiError("Existing records cannot be edited", "FORBIDDEN");
-      if (cur && o.row._v !== void 0 && o.row._v !== (cur._v || 0)) {
+      if (!cur) continue;
+      if (spec.edit.indexOf(o.table) < 0) throw new ApiError("Existing records cannot be edited here", "FORBIDDEN");
+      if (o.row._v !== void 0 && o.row._v !== (cur._v || 0)) {
         throw new ApiError("Someone else has just changed this record. The latest data has been loaded; please try again.", "CONFLICT");
       }
     }
     guards(name, user, ops, db);
     const now = host.now();
+    const v = new View(db, ops);
     const applied = [];
     const deleted = [];
-    for (const o of ops) {
-      if (o.t !== "upsert") continue;
-      const d = def(o.table);
-      const cur = db.find(o.table, o.row[d.id]);
-      const e = { ...cur ? clean(cur) : {}, ...o.row };
-      e._v = (cur ? cur._v || 0 : 0) + 1;
-      e._at = now;
-      e._by = user.loginId;
-      if (o.table === "pos") {
-        if (cur) e.poNo = cur.poNo;
-        else {
-          e.poNo = nextNumber(db, "po", "PO-");
-          e.createdBy = user.name;
-          e.department = user.department;
+    for (const table of APPLY_ORDER) {
+      for (const o of ops) {
+        if (o.table !== table || o.t !== "upsert") continue;
+        const d = def(table);
+        const cur = db.find(table, o.row[d.id]);
+        const e = { ...cur ? clean(cur) : {}, ...o.row };
+        e._v = (cur ? cur._v || 0 : 0) + 1;
+        e._at = now;
+        e._by = user.loginId;
+        if (table === "pos") {
+          if (cur) e.poNo = cur.poNo;
+          else {
+            e.poNo = nextNo(db, "pos", "poNo", "PO-");
+            e.createdBy = user.name;
+            e.department = user.department;
+          }
         }
-      }
-      if (o.table === "receipts") {
-        if (cur) e.grnNo = cur.grnNo;
-        else {
-          e.grnNo = nextNumber(db, "grn", "GRN-");
-          e.createdBy = user.name;
+        if (table === "receipts") {
+          if (cur) e.grnNo = cur.grnNo;
+          else {
+            e.grnNo = e.type === "Invoice" ? nextNo(db, "receipts", "grnNo", "GRN-") : "";
+            e.createdBy = user.name;
+          }
         }
+        if (table === "payments") e.paidBy = user.name;
+        if (table === "stock") e.by = user.name;
+        if (table === "poLines" && o.row.queryStatus === "Open") e.queryBy = user.name;
+        fillNames(db, table, e, v);
+        db.put(table, e);
+        applied.push({ table, row: clean(e) });
       }
-      if (o.table === "poHistory") {
-        e.by = user.name;
-        e.date = e.date || now.slice(0, 10);
-      }
-      if (o.table === "payments") e.paidBy = user.name;
-      db.put(o.table, e);
-      applied.push({ table: o.table, row: clean(e) });
     }
     for (const o of ops) {
-      if (o.t === "delete") {
-        db.del(o.table, o.id);
-        deleted.push({ table: o.table, id: o.id });
+      if (o.t !== "delete") continue;
+      const rows = db.rows(o.table);
+      const i = rows.findIndex((r) => r.id === o.id);
+      if (i >= 0) {
+        host.remove(def(o.table).sheet, rows[i].__row);
+        const gone = rows[i].__row;
+        rows.splice(i, 1);
+        rows.forEach((r) => {
+          if (r.__row > gone) r.__row -= 1;
+        });
       }
+      deleted.push({ table: o.table, id: o.id });
     }
+    const poRef = ops.map((o) => o.row ? o.table === "pos" ? o.row.id : o.row.poId : "").filter(Boolean)[0] || "";
     const detail = ops.map((o) => `${o.t} ${o.table}:${o.t === "upsert" ? o.row[def(o.table).id] : o.id}`).join("; ").slice(0, 1500);
-    db.put("audit", { id: host.uuid(), time: now, user: user.loginId, role: user.role, action: name, detail });
-    return { applied, deleted };
+    db.put("log", { id: host.uuid(), time: now, user: user.name, role: user.role, action: name, event: String(note || "").slice(0, 300), ref: poRef, detail });
+    host.bumpStamp();
+    return { applied, deleted, stamp: host.stamp() };
   }
-  var sanitizeRow = (k, row) => {
-    if (!(k in TABLES) || TABLES[k].kind !== "data") throw new ApiError("Unknown table " + k);
-    return sanitize(k, row);
-  };
+  function history(db, ref) {
+    return { entries: db.rows("log").filter((r) => r.ref === ref && r.event).map((r) => ({ id: r.id, time: r.time, by: r.user, text: r.event })) };
+  }
   function upload(host, db, user, req) {
-    if (!user.permissions.some((p) => ["advance.pay", "payment.make", "receipt.create", "po.save", "master.manage"].includes(p))) throw new ApiError("Not allowed to upload", "FORBIDDEN");
+    if (!user.permissions.some((p) => ["advance.pay", "payment.make", "receipt.create", "po.save", "master.manage"].indexOf(p) >= 0)) throw new ApiError("Not allowed to upload", "FORBIDDEN");
     const b64 = String(req.data || "");
     if (!b64 || b64.length * 0.75 > MAX_FILE_BYTES) throw new ApiError("File is empty or larger than 8 MB");
     if (!/^(image\/|application\/pdf$)/.test(String(req.mime))) throw new ApiError("Only images and PDF files are allowed");
@@ -955,32 +1226,32 @@ var Core = (() => {
     return { fileId: f.id, name: safe };
   }
   function usersList(db) {
-    return { users: db.rows("users").map((u) => ({ loginId: u.loginId, name: u.name, role: u.role, department: u.department, level: u.level, reportsTo: u.reportsTo, active: u.active })), roles: db.rows("roles").map(clean) };
+    return { users: db.rows("users").map((u) => ({ loginId: u.loginId, name: u.name, role: u.role, department: u.department, level: u.level, reportsTo: u.reportsTo, active: u.active })), roles: db.rows("roles").map((r) => ({ role: r.role, level: r.level })) };
   }
+  var text100 = (s) => {
+    const v = String(s != null ? s : "").slice(0, 100);
+    return /^[=+@]/.test(v) ? " " + v : v;
+  };
   function usersSave(db, req) {
     const u = req.user || {};
     const id = String(u.loginId || "").trim();
     if (!/^[A-Za-z0-9._-]{3,30}$/.test(id)) throw new ApiError("Login ID: 3-30 letters, numbers, . _ -");
-    if (!db.rows("roles").some((r) => lc(r.role) === lc(u.role))) throw new ApiError("Unknown role. Add it to the Roles sheet first.");
+    if (!db.rows("roles").some((r) => lc(r.role) === lc(u.role))) throw new ApiError("Unknown role. Add it to the Roles tab first.");
     const cur = db.rows("users").find((r) => lc(r.loginId) === lc(id));
     if (!cur && !u.password) throw new ApiError("Set a password for the new user");
     if (u.password && String(u.password).length < 6) throw new ApiError("Password must be at least 6 characters");
     db.put("users", {
       loginId: cur ? cur.loginId : id,
       password: u.password ? hashPw(id, String(u.password)) : cur.password,
-      name: sanitize2(u.name),
-      role: sanitize2(u.role),
-      department: sanitize2(u.department),
+      name: text100(u.name),
+      role: text100(u.role),
+      department: text100(u.department),
       level: Number(u.level) || 0,
-      reportsTo: sanitize2(u.reportsTo),
+      reportsTo: text100(u.reportsTo),
       active: u.active !== false
     });
   }
-  var sanitize2 = (s) => {
-    const v = String(s != null ? s : "").slice(0, 100);
-    return /^[=+@]/.test(v) ? " " + v : v;
-  };
-  function changePassword(host, db, user, req) {
+  function changePassword(db, user, req) {
     const u = db.rows("users").find((r) => r.loginId === user.loginId);
     if (hashPw(u.loginId, String(req.oldPassword)) !== u.password && u.password !== String(req.oldPassword)) throw new ApiError("Current password is wrong");
     if (String(req.newPassword || "").length < 6) throw new ApiError("New password must be at least 6 characters");
@@ -989,56 +1260,65 @@ var Core = (() => {
   function handle(host, req) {
     try {
       if (!req || typeof req !== "object") throw new ApiError("Bad request");
-      const db = new Db(host);
-      if (!host.read("access", TABLES.users.sheet).length && req.action !== "ping") throw new ApiError("The Sheet is not set up yet. Run setup() in Apps Script first.", "SETUP");
+      if (req.action === "ping") return { ok: true, pong: true };
+      if (!host.read(TABLES.users.sheet).length) throw new ApiError("The Sheet is not set up yet. Run setup() in Apps Script first.", "SETUP");
+      const fresh = () => new Db(host);
       switch (req.action) {
-        case "ping":
-          return { ok: true, pong: true };
         case "login":
-          return { ok: true, ...host.withLock(() => login(host, db, req)) };
+          return { ok: true, ...host.withLock(() => login(host, fresh(), req)) };
         case "logout":
           host.cacheRemove("sess:" + req.token);
           return { ok: true };
+        case "stamp": {
+          if (!host.cacheGet("sess:" + req.token)) throw new ApiError("Session expired. Please log in again.", "AUTH");
+          return { ok: true, stamp: host.stamp() };
+        }
         case "bootstrap":
           return { ok: true, ...host.withLock(() => {
-            const d2 = new Db(host);
-            return bootstrap(host, d2, authenticate(host, d2, req.token));
+            const d = fresh();
+            return bootstrap(host, d, authenticate(host, d, req.token), !!req.all);
           }) };
         case "commit":
           return { ok: true, ...host.withLock(() => {
-            const d2 = new Db(host);
-            return commit(host, d2, authenticate(host, d2, req.token), String(req.name), req.ops);
+            const d = fresh();
+            return commit(host, d, authenticate(host, d, req.token), String(req.name), req.ops, req.note);
           }) };
+        case "history": {
+          const d = fresh();
+          authenticate(host, d, req.token);
+          return { ok: true, ...history(d, String(req.ref)) };
+        }
         case "upload":
           return { ok: true, ...host.withLock(() => {
-            const d2 = new Db(host);
-            return upload(host, d2, authenticate(host, d2, req.token), req);
+            const d = fresh();
+            return upload(host, d, authenticate(host, d, req.token), req);
           }) };
         case "file": {
-          authenticate(host, db, req.token);
-          const f = host.readFile(String(req.fileId));
-          return { ok: true, ...f };
+          authenticate(host, fresh(), req.token);
+          return { ok: true, ...host.readFile(String(req.fileId)) };
         }
         case "changePassword":
           return host.withLock(() => {
-            const d2 = new Db(host);
-            changePassword(host, d2, authenticate(host, d2, req.token), req);
+            const d = fresh();
+            changePassword(d, authenticate(host, d, req.token), req);
             return { ok: true };
           });
         case "users.list": {
-          const u = authenticate(host, db, req.token);
+          const d = fresh();
+          const u = authenticate(host, d, req.token);
           need(u, "users.manage");
-          return { ok: true, ...usersList(db) };
+          return { ok: true, ...usersList(d) };
         }
         case "users.save":
           return host.withLock(() => {
             var _a;
-            const d2 = new Db(host);
-            const u = authenticate(host, d2, req.token);
+            const d = fresh();
+            const u = authenticate(host, d, req.token);
             need(u, "users.manage");
-            usersSave(d2, req);
-            d2.put("audit", { id: host.uuid(), time: host.now(), user: u.loginId, role: u.role, action: "users.save", detail: String((_a = req.user) == null ? void 0 : _a.loginId) });
-            return { ok: true, ...usersList(d2) };
+            usersSave(d, req);
+            d.put("log", { id: host.uuid(), time: host.now(), user: u.name, role: u.role, action: "users.save", event: "", ref: "", detail: "user " + String((_a = req.user) == null ? void 0 : _a.loginId) });
+            host.bumpStamp();
+            return { ok: true, ...usersList(d) };
           });
         default:
           throw new ApiError("Unknown request");
@@ -1053,7 +1333,7 @@ var Core = (() => {
     for (const k of keys) {
       const d = def(k);
       const cols = allCols(d);
-      host.ensureSheet(bookOf(d), d.sheet, cols.map((c2) => c2.header), cols.filter((c2) => c2.type === "text" || c2.type === "date").map((c2) => c2.header));
+      host.ensureSheet(d.sheet, cols.map((c2) => c2.header), cols.filter((c2) => c2.type === "text" || c2.type === "date").map((c2) => c2.header), d.color);
     }
     const db = new Db(host);
     const fill = (rows) => {

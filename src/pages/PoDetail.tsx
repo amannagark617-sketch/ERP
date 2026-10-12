@@ -1,25 +1,31 @@
-import { useState } from 'react';
-import { actions, useAuth, useStore } from '../store';
+import { useEffect, useState } from 'react';
+import { actions, fetchHistory, useAuth, useStore } from '../store';
 import {
-  advancePaid, displayStatus, isDelayed, itemName, outstanding, paidTotal, pendingQty, poValue,
-  receiptBalance, receiptPaid, receiptsOf, receivedQty, receivedValue, vendorOf,
+  advancePaid, displayStatus, invoicesOf, isDelayed, itemName, outstanding, paidTotal, pendingQty, poValue,
+  receiptBalance, receiptPaid, receivedQty, receivedValue, vendorOf,
 } from '../domain';
 import { Badge, Card, Empty, FileLink, Link, PayForm, Stat, go, run } from '../ui';
 import { fmtDate, inr } from '../utils';
+import { HistoryEntry } from '../types';
 
 export default function PoDetail({ id }: { id: string }) {
   const s = useStore();
   const { can, role } = useAuth();
   const [remark, setRemark] = useState('');
   const [paying, setPaying] = useState(false);
+  const [history, setHistory] = useState<HistoryEntry[] | null>(null);
   const po = s.pos.find(p => p.id === id);
-  if (!po) return <p>PO not found. <Link to="/pos">Back to list</Link></p>;
-  const vendor = vendorOf(s, po.vendorId)!;
+  const version = po?._v;
+  // The history lives in the Log tab; fetch it for this PO and again whenever the PO changes.
+  useEffect(() => { fetchHistory(id).then(setHistory).catch(() => setHistory([])); }, [id, version]);
+  if (!po) return <p>PO not found (it may be an older, settled PO – use “Load full history” in the top bar). <Link to="/pos">Back to list</Link></p>;
+  const vendor = vendorOf(s, po.vendorId) ?? ({ name: '(vendor row missing in the Vendors tab)', contact: '', email: '', whatsapp: '', msme: false, msmeType: '', udyamNo: '', gstin: '', city: '' } as NonNullable<ReturnType<typeof vendorOf>>);
   const sent = po.status === 'Sent to Vendor';
   const canApprove = can('po.approve') && po.status === 'Pending ' + role;
   const poText = `Purchase Order ${po.poNo} – Little Nap Recliners\n` +
     po.lines.map(l => `${itemName(s, l.itemId)}: ${l.qty} x ${l.price}`).join('\n') + `\nTotal: ${poValue(po)}\nExpected delivery: ${po.expectedDate}\nTerms: ${po.terms}`;
-  const queries = s.queries.filter(q => q.poId === po.id);
+  const queries = po.lines.filter(l => l.queryNote);
+  const pendingTotal = po.lines.reduce((a, l) => a + pendingQty(s, po, l.itemId), 0);
 
   return (
     <>
@@ -100,15 +106,15 @@ export default function PoDetail({ id }: { id: string }) {
           )}
         </Card>
       )}
-      {can('receipt.create') && sent && pendingTotal(s, po.id) > 0 && (
+      {can('receipt.create') && sent && pendingTotal > 0 && (
         <Card title="Goods receipt"><button className="btn primary" onClick={() => go(`/receipts/${po.id}/new`)}>Receive goods against this PO</button></Card>
       )}
 
       <Card title="Goods receipts & invoices">
-        {receiptsOf(s, po.id).length === 0 ? <Empty>No goods received yet.</Empty> : (
+        {invoicesOf(s, po.id).length === 0 ? <Empty>No goods received yet.</Empty> : (
           <div className="tablewrap"><table>
             <thead><tr><th>GRN</th><th>Invoice</th><th>Received</th><th className="r">Invoice total</th><th className="r">Advance adj.</th><th className="r">Payable</th><th className="r">Paid</th><th className="r">Balance</th><th>Accounts</th><th>Invoice copy</th></tr></thead>
-            <tbody>{receiptsOf(s, po.id).map(r => (
+            <tbody>{invoicesOf(s, po.id).map(r => (
               <tr key={r.id}><td>{r.grnNo || '…'}</td><td>{r.invoiceNo}<br /><span className="mut">{fmtDate(r.invoiceDate)}</span></td><td>{fmtDate(r.receivedDate)}</td>
                 <td className="r">{inr(r.grandTotal)}</td><td className="r">{inr(r.advanceAdjusted)}</td><td className="r">{inr(r.payable)}</td>
                 <td className="r">{inr(receiptPaid(s, r))}</td><td className="r">{inr(receiptBalance(s, r))}</td><td>{r.accepted ? <span className="ok">Accepted</span> : <span className="mut">Awaiting</span>}</td><td><FileLink id={r.invoiceFile} /></td></tr>
@@ -119,21 +125,18 @@ export default function PoDetail({ id }: { id: string }) {
 
       {queries.length > 0 && (
         <Card title="Price queries to backend (HO)">
-          <table><tbody>{queries.map(q => <tr key={q.id}><td>{itemName(s, q.itemId)}</td><td>{q.note}</td><td className="mut">{q.raisedBy}, {fmtDate(q.date)}</td><td><Badge>{q.status}</Badge></td></tr>)}</tbody></table>
+          <table><tbody>{queries.map(l => <tr key={l.itemId}><td>{itemName(s, l.itemId)}</td><td>{l.queryNote}</td><td className="mut">{l.queryBy}</td><td><Badge>{l.queryStatus === 'Resolved' ? 'Resolved' : 'Open'}</Badge></td></tr>)}</tbody></table>
         </Card>
       )}
 
       <Card title="History">
-        <ul className="timeline">{po.history.map((h, i) => <li key={i}><b>{fmtDate(h.date)}</b> · {h.by} – {h.text}</li>)}</ul>
+        {history === null ? <Empty>Loading…</Empty> : history.length === 0 ? <Empty>No history yet.</Empty> : (
+          <ul className="timeline">{history.map(h => <li key={h.id}><b>{fmtDate(h.time.slice(0, 10))}</b> · {h.by} – {h.text}</li>)}</ul>
+        )}
       </Card>
     </>
   );
 }
-
-const pendingTotal = (s: ReturnType<typeof useStore>, poId: string) => {
-  const po = s.pos.find(p => p.id === poId)!;
-  return po.lines.reduce((a, l) => a + pendingQty(s, po, l.itemId), 0);
-};
 
 function AdvanceForm({ amount, folder, onSubmit, onCancel }: {
   amount: number; folder: string; onSubmit: (a: number, d: string, shot: string | undefined, full: boolean) => unknown; onCancel: () => void;
@@ -148,4 +151,3 @@ function AdvanceForm({ amount, folder, onSubmit, onCancel }: {
       onSubmit={(a, d, shot) => onSubmit(a, d, shot, full)} />
   );
 }
-

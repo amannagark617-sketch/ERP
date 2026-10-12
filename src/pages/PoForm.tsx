@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { actions, useAuth, useStore } from '../store';
-import { approvalRoute, itemOf, poValue, vendorOf } from '../domain';
+import { approvalRoute, itemOf, offersFor, poValue, vendorOf } from '../domain';
 import { Card, Field, go, run } from '../ui';
 import { addDays, inr, today } from '../utils';
 import { PoLine } from '../types';
@@ -49,19 +49,22 @@ export default function PoForm({ id }: { id?: string }) {
       <Card title="Items (price is fixed by the backend and cannot be edited)">
         {!vendor ? <p className="empty">Select a vendor to see its items and prices.</p> : (
           <div className="tablewrap"><table>
-            <thead><tr><th>Item</th><th className="r">Price</th><th className="r">Quantity</th><th className="r">Amount</th></tr></thead>
-            <tbody>{vendor.items.map(vi => (
+            <thead><tr><th>Item</th><th className="r">Price</th><th>Cheaper elsewhere?</th><th className="r">Quantity</th><th className="r">Amount</th></tr></thead>
+            <tbody>{vendor.items.filter(vi => itemOf(s, vi.itemId)?.active !== false).map(vi => {
+              const cheaper = offersFor(s, vi.itemId).find(o => o.vendor.id !== vendor.id && o.price < vi.price);
+              return (
               <tr key={vi.itemId}>
                 <td>{itemOf(s, vi.itemId)?.name} <span className="mut">/{itemOf(s, vi.itemId)?.unit}</span></td>
                 <td className="r">{inr(vi.price)}</td>
+                <td className="mut">{cheaper ? <span className="bad">{inr(cheaper.price)} at {cheaper.vendor.name}</span> : '—'}</td>
                 <td className="r"><input type="number" min={0} style={{ width: 90 }} value={qty[vi.itemId] ?? ''} onChange={e => setQty({ ...qty, [vi.itemId]: +e.target.value })} /></td>
                 <td className="r">{inr((qty[vi.itemId] || 0) * vi.price)}</td>
               </tr>
-            ))}
-            <tr className="tot"><td colSpan={3} className="r">PO value (before tax)</td><td className="r">{inr(total)}</td></tr></tbody>
+            );})}
+            <tr className="tot"><td colSpan={4} className="r">PO value (before tax)</td><td className="r">{inr(total)}</td></tr></tbody>
           </table></div>
         )}
-        {total > 0 && <p className="mut">Approval route: {approvalRoute({ lines }).join(' → ') || 'none (auto-approved)'} <span className="mut">(from the ApprovalRules sheet)</span></p>}
+        {total > 0 && <p className="mut">Approval route: {approvalRoute({ lines }).join(' → ') || 'none (auto-approved)'} <span className="mut">(from the Roles tab)</span></p>}
       </Card>
       <Card title="Terms & advance">
         <Field label="Terms and conditions"><textarea value={terms} onChange={e => setTerms(e.target.value)} /></Field>

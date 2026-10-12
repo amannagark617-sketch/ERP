@@ -1,21 +1,7 @@
-// TEST-ONLY sample data (not shipped in the app's setup). Used by tests/run.mjs, tests/gas.mjs and tests/devserver.mjs.
+// TEST-ONLY sample data (not shipped in the app's setup). Used by the tests and tests/devserver.mjs.
 import { TableKey } from '../src/shared/schema';
 
 type Rows = Partial<Record<TableKey, any[]>>;
-
-export function fixtureUsers(): Rows {
-  return {
-    users: [
-      { loginId: 'admin', password: 'admin123', name: 'Administrator', role: 'Admin', department: 'Management', level: 5, reportsTo: '', active: true },
-      { loginId: 'mohit', password: 'mohit123', name: 'Mohit (CA)', role: 'CA', department: 'Finance', level: 4, reportsTo: 'admin', active: true },
-      { loginId: 'ho', password: 'ho123', name: 'Head Office', role: 'HO', department: 'Head Office', level: 4, reportsTo: 'admin', active: true },
-      { loginId: 'factoryhead', password: 'factoryhead123', name: 'Factory Head', role: 'Factory Head', department: 'Factory', level: 3, reportsTo: 'mohit', active: true },
-      { loginId: 'navneet', password: 'navneet123', name: 'Navneet', role: 'Purchase', department: 'Purchase', level: 2, reportsTo: 'factoryhead', active: true },
-      { loginId: 'accounts', password: 'accounts123', name: 'Accounts', role: 'Accounts', department: 'Accounts', level: 2, reportsTo: 'mohit', active: true },
-      { loginId: 'inventory', password: 'inventory123', name: 'Inventory (Factory)', role: 'Inventory', department: 'Factory', level: 1, reportsTo: 'factoryhead', active: true },
-    ]
-  };
-}
 
 const day = (base: string, n: number) => {
   const d = new Date(base + 'T00:00:00Z');
@@ -23,47 +9,56 @@ const day = (base: string, n: number) => {
   return d.toISOString().slice(0, 10);
 };
 
-/** Optional demo masters + a few sample POs. */
-export function demoSeed(today: string): Rows {
-  const t = today;
-  const h = (id: string, poId: string, d: string, by: string, text: string) => ({ id, poId, date: d, by, text });
+export function fixtureUsers(): Rows {
+  const u = (loginId: string, name: string, role: string, department: string, level: number, reportsTo = '') =>
+    ({ loginId, password: loginId + '123', name, role, department, level, reportsTo, active: true });
   return {
-    items: [
-      { id: 'I1', name: 'Recliner mechanism (manual)', unit: 'pcs' },
-      { id: 'I2', name: 'Recliner mechanism (motorised)', unit: 'pcs' },
-      { id: 'I3', name: 'Foam sheet 40D', unit: 'sheet' },
-      { id: 'I4', name: 'Leatherette fabric', unit: 'm' },
-      { id: 'I5', name: 'Wooden frame set', unit: 'set' },
-      { id: 'I6', name: 'Packing carton', unit: 'pcs' },
+    users: [
+      u('admin', 'Administrator', 'Admin', 'Management', 5), u('mohit', 'Mohit (CA)', 'CA', 'Finance', 4, 'admin'),
+      u('ho', 'Head Office', 'HO', 'Head Office', 4, 'admin'), u('factoryhead', 'Factory Head', 'Factory Head', 'Factory', 3, 'mohit'),
+      u('navneet', 'Navneet', 'Purchase', 'Purchase', 2, 'factoryhead'), u('accounts', 'Accounts', 'Accounts', 'Accounts', 2, 'mohit'),
+      u('inventory', 'Inventory (Factory)', 'Inventory', 'Factory', 1, 'factoryhead'),
     ],
-    vendors: [
-      { id: 'V1', name: 'Sharma Mechanisms Pvt Ltd', contact: 'Rakesh Sharma', email: 'sales@sharmamech.example', whatsapp: '919800000001', msme: true, msmeType: 'Small', udyamNo: 'UDYAM-DL-01-0000001', gstin: '07AAAAA0000A1Z5', pan: 'AAAAA0000A', address: 'Plot 12, Industrial Area', city: 'Delhi', state: 'Delhi', paymentTermsDays: 30, bankName: 'HDFC Bank', accountNo: '50100000000001', ifsc: 'HDFC0000001', active: true },
-      { id: 'V2', name: 'Foam & Fabric Traders', contact: 'Anita Verma', email: 'orders@foamfabric.example', whatsapp: '919800000002', msme: false, msmeType: '', udyamNo: '', gstin: '06BBBBB1111B1Z6', pan: 'BBBBB1111B', address: 'Sector 5', city: 'Gurugram', state: 'Haryana', paymentTermsDays: 45, bankName: 'ICICI Bank', accountNo: '000405000002', ifsc: 'ICIC0000004', active: true },
-      { id: 'V3', name: 'Kailash Timber Works', contact: 'Kailash Rao', email: 'kailash@timber.example', whatsapp: '919800000003', msme: true, msmeType: 'Micro', udyamNo: 'UDYAM-UP-02-0000002', gstin: '09CCCCC2222C1Z7', pan: 'CCCCC2222C', address: 'Saw Mill Road', city: 'Saharanpur', state: 'Uttar Pradesh', paymentTermsDays: 15, bankName: 'SBI', accountNo: '30000000003', ifsc: 'SBIN0000003', active: true },
-    ],
-    vendorItems: [
-      { vendorId: 'V1', itemId: 'I1', price: 2400 }, { vendorId: 'V1', itemId: 'I2', price: 6800 },
-      { vendorId: 'V2', itemId: 'I3', price: 1850 }, { vendorId: 'V2', itemId: 'I4', price: 420 },
-      { vendorId: 'V3', itemId: 'I5', price: 3200 }, { vendorId: 'V3', itemId: 'I6', price: 95 },
-    ].map(r => ({ id: `${r.vendorId}:${r.itemId}`, ...r })),
+  };
+}
+
+export function demoSeed(t: string): Rows {
+  const v = (id: string, name: string, msme: boolean, extra: any = {}) => ({
+    id, name, contact: 'Contact ' + id, email: id.toLowerCase() + '@example.com', whatsapp: '9198000000' + id.slice(1), msme, msmeType: msme ? 'Small' : '', udyamNo: msme ? `UDYAM-DL-01-000000${id.slice(1)}` : '',
+    gstin: '07AAAAA0000A1Z5', pan: 'AAAAA0000A', address: 'Plot 1', city: 'Delhi', state: 'Delhi', paymentTermsDays: 30, bankName: 'HDFC', accountNo: '5010000000' + id.slice(1), ifsc: 'HDFC0000001', active: true, ...extra,
+  });
+  const iname: Record<string, string> = { I1: 'Recliner mechanism (manual)', I2: 'Recliner mechanism (motorised)', I3: 'Foam sheet 40D', I4: 'Leatherette fabric', I5: 'Wooden frame set', I6: 'Packing carton' };
+  const vname: Record<string, string> = { V1: 'Sharma Mechanisms', V2: 'Foam & Fabric Traders', V3: 'Kailash Timber Works', V4: 'Bharat Foam' };
+  const price = (vendorId: string, itemId: string, p: number) => ({ id: `${vendorId}:${itemId}`, vendorId, vendorName: vname[vendorId], itemId, itemName: iname[itemId], price: p });
+  const line = (poId: string, poNo: string, itemId: string, qty: number, p: number) => ({ id: `${poId}:${itemId}`, poId, poNo, itemId, itemName: iname[itemId], qty, price: p, queryNote: '', queryStatus: '', queryBy: '' });
+  const po = (id: string, poNo: string, date: string, vendorId: string, o: any) => ({
+    id, poNo, date, vendorId, vendorName: vname[vendorId], terms: '', advanceRequired: false, advanceAmount: 0, expectedDate: day(t, 10), status: 'Draft', advanceStatus: 'Not Required',
+    route: '', step: 0, sentVia: '', sentTo: '', createdBy: 'Navneet', department: 'Purchase', ...o,
+  });
+  return {
+    items: Object.entries(iname).map(([id, name]) => ({ id, name, unit: id === 'I4' ? 'm' : 'pcs', category: '', minStock: id === 'I1' ? 50 : 0, active: true })),
+    vendors: [v('V1', vname.V1, true), v('V2', vname.V2, false, { paymentTermsDays: 45 }), v('V3', vname.V3, true, { paymentTermsDays: 15 }), v('V4', vname.V4, false)],
+    prices: [price('V1', 'I1', 2400), price('V1', 'I2', 6800), price('V2', 'I3', 1850), price('V2', 'I4', 420), price('V4', 'I3', 1790), price('V3', 'I5', 3200), price('V3', 'I6', 95)],
     pos: [
-      { id: 'po1', poNo: 'PO-0001', date: day(t, -20), vendorId: 'V1', terms: '30 days credit. Delivery at factory gate.', advanceRequired: true, advanceAmount: 100000, expectedDate: day(t, -5), status: 'Sent to Vendor', advanceStatus: 'Advance Paid', route: 'Factory Head', step: 1, sentVia: 'Email', sentTo: 'sales@sharmamech.example', createdBy: 'Navneet', department: 'Purchase' },
-      { id: 'po2', poNo: 'PO-0002', date: day(t, -1), vendorId: 'V2', terms: 'Delivery within 10 days.', advanceRequired: false, advanceAmount: 0, expectedDate: day(t, 9), status: 'Pending Factory Head', advanceStatus: 'Not Required', route: 'Factory Head', step: 0, sentVia: '', sentTo: '', createdBy: 'Navneet', department: 'Purchase' },
-      { id: 'po3', poNo: 'PO-0003', date: t, vendorId: 'V3', terms: '', advanceRequired: false, advanceAmount: 0, expectedDate: day(t, 14), status: 'Draft', advanceStatus: 'Not Required', route: '', step: 0, sentVia: '', sentTo: '', createdBy: 'Navneet', department: 'Purchase' },
+      po('po1', 'PO-0001', day(t, -20), 'V1', { terms: '30 days credit.', advanceRequired: true, advanceAmount: 100000, expectedDate: day(t, -5), status: 'Sent to Vendor', advanceStatus: 'Advance Paid', route: 'Factory Head', step: 1, sentVia: 'Email', sentTo: 'v1@example.com' }),
+      po('po2', 'PO-0002', day(t, -1), 'V2', { status: 'Pending Factory Head', route: 'Factory Head', step: 0 }),
+      po('po3', 'PO-0003', t, 'V3', {}),
+      // a long-settled PO from two years ago (fully received, accepted and paid)
+      po('po9', 'PO-0000', day(t, -730), 'V2', { status: 'Sent to Vendor', route: 'Factory Head', step: 1, sentVia: 'Email', sentTo: 'v2@example.com', expectedDate: day(t, -700) }),
     ],
-    poLines: [
-      { poId: 'po1', itemId: 'I1', qty: 200, price: 2400 },
-      { poId: 'po2', itemId: 'I3', qty: 300, price: 1850 }, { poId: 'po2', itemId: 'I4', qty: 800, price: 420 },
-      { poId: 'po3', itemId: 'I5', qty: 100, price: 3200 },
-    ].map(r => ({ id: `${r.poId}:${r.itemId}`, ...r })),
-    poHistory: [
-      h('h1', 'po1', day(t, -20), 'Navneet', 'PO created and submitted'), h('h2', 'po1', day(t, -19), 'Factory Head', 'Approved'),
-      h('h3', 'po1', day(t, -18), 'Accounts', 'Advance Paid: 100000'), h('h4', 'po1', day(t, -18), 'Navneet', 'Sent to vendor via Email'),
-      h('h5', 'po2', day(t, -1), 'Navneet', 'PO created and submitted'), h('h6', 'po3', t, 'Navneet', 'Draft created'),
+    poLines: [line('po1', 'PO-0001', 'I1', 200, 2400), line('po2', 'PO-0002', 'I3', 300, 1850), line('po2', 'PO-0002', 'I4', 800, 420), line('po3', 'PO-0003', 'I5', 100, 3200), line('po9', 'PO-0000', 'I4', 10, 420)],
+    receipts: [
+      { id: 'r9', grnNo: 'GRN-0000', type: 'Invoice', poId: 'po9', poNo: 'PO-0000', vendorId: 'V2', vendorName: vname.V2, invoiceNo: 'OLD-1', invoiceDate: day(t, -720), receivedDate: day(t, -720), subtotal: 4200, taxTotal: 756, grandTotal: 4956, advanceAdjusted: 0, payable: 4956, dueDate: day(t, -675), accepted: true, acceptedDate: day(t, -719), invoiceFile: '', createdBy: 'Inventory' },
+      { id: 'ob1', grnNo: '', type: 'Opening', poId: '', poNo: '', vendorId: 'V3', vendorName: vname.V3, invoiceNo: 'Old bill KT-2291', invoiceDate: day(t, -30), receivedDate: day(t, -30), subtotal: 85000, taxTotal: 0, grandTotal: 85000, advanceAdjusted: 0, payable: 85000, dueDate: day(t, -12), accepted: true, acceptedDate: day(t, -30), invoiceFile: '', createdBy: 'Accounts' },
     ],
-    payments: [{ id: 'pay1', kind: 'advance', poId: 'po1', receiptId: '', openingId: '', amount: 100000, date: day(t, -18), screenshot: '', paidBy: 'Accounts' }],
-    openings: [{ id: 'ob1', vendorId: 'V3', ref: 'Old bill KT-2291 (opening balance)', amount: 85000, dueDate: day(t, -12) }],
-    counters: [{ id: 'po', value: 3 }, { id: 'grn', value: 0 }],
+    payments: [
+      { id: 'pay1', kind: 'advance', poId: 'po1', poNo: 'PO-0001', receiptId: '', vendorName: vname.V1, amount: 100000, date: day(t, -18), screenshot: '', paidBy: 'Accounts' },
+      { id: 'pay9', kind: 'invoice', poId: 'po9', poNo: 'PO-0000', receiptId: 'r9', vendorName: vname.V2, amount: 4956, date: day(t, -700), screenshot: '', paidBy: 'Accounts' },
+    ],
+    stock: [
+      { id: 'r9:I4', date: day(t, -720), itemId: 'I4', itemName: iname.I4, type: 'IN', qty: 10, receiptId: 'r9', grnNo: 'GRN-0000', price: 420, taxRate: 18, toDept: '', note: '', by: 'Inventory' },
+      { id: 'st1', date: day(t, -3), itemId: 'I3', itemName: iname.I3, type: 'ADJUST', qty: 100, receiptId: '', grnNo: '', price: 0, taxRate: 0, toDept: '', note: 'Opening stock', by: 'HO' },
+    ],
   };
 }
 

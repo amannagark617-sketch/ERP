@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { actions, init, logout, reload, useSnap } from './store';
+import { Component, ReactNode, useEffect, useState } from 'react';
+import { init, loadFullHistory, logout, reload, useSnap } from './store';
 import { api } from './api';
 import { cfg } from './config';
 import { currentToken } from './store';
@@ -11,11 +11,11 @@ import Receipts from './pages/Receipts';
 import ReceiptForm from './pages/ReceiptForm';
 import Accounts from './pages/Accounts';
 import Vendors from './pages/Vendors';
+import ItemsPrices from './pages/ItemsPrices';
+import Stock from './pages/Stock';
 import Admin from './pages/Admin';
 import { Login, Setup } from './pages/Login';
 import { run } from './ui';
-
-void actions;
 
 function Route({ path }: { path: string }) {
   const p = path.split('/').filter(Boolean);
@@ -29,8 +29,27 @@ function Route({ path }: { path: string }) {
   if (p[0] === 'receipts') return p[2] === 'new' ? <ReceiptForm poId={p[1]} /> : <Receipts />;
   if (p[0] === 'accounts') return <Accounts />;
   if (p[0] === 'vendors') return <Vendors />;
+  if (p[0] === 'items') return <ItemsPrices />;
+  if (p[0] === 'stock') return <Stock />;
   if (p[0] === 'admin') return <Admin />;
   return <p>Page not found.</p>;
+}
+
+/** Last line of defence: a bad row in the Sheet must never leave users with a blank screen. */
+class Guard extends Component<{ children: ReactNode; resetKey: string }, { error?: Error; key: string }> {
+  state: { error?: Error; key: string } = { key: this.props.resetKey };
+  static getDerivedStateFromError(error: Error) { return { error }; }
+  static getDerivedStateFromProps(p: { resetKey: string }, st: { key: string }) { return p.resetKey !== st.key ? { error: undefined, key: p.resetKey } : null; }
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <div className="warn">
+        <b>This page could not be shown.</b> A record in the Google Sheet may be incomplete (for example a deleted vendor or item that an older PO still uses).
+        <div className="mut">{this.state.error.message}</div>
+        <button className="btn sm" onClick={() => { this.setState({ error: undefined }); reload().catch(() => undefined); }}>Reload data</button>
+      </div>
+    );
+  }
 }
 
 async function changePassword() {
@@ -58,7 +77,7 @@ export default function App() {
 
   const can = (p: string) => s.user!.permissions.includes(p);
   const NAV: [string, string][] = [
-    ['/', 'Dashboard'], ['/pos', 'Purchase Orders'], ['/receipts', 'Goods Receipt'], ['/accounts', 'Accounts'], ['/vendors', 'Vendors & Prices'],
+    ['/', 'Dashboard'], ['/pos', 'Purchase Orders'], ['/receipts', 'Goods Receipt'], ['/stock', 'Stock'], ['/accounts', 'Accounts'], ['/vendors', 'Vendors'], ['/items', 'Items & Prices'],
     ...(can('users.manage') ? [['/admin', 'Users & Access'] as [string, string]] : []),
   ];
   return (
@@ -78,7 +97,11 @@ export default function App() {
       </nav>
       <main>
         {s.error && <div className="warn">{s.error}</div>}
-        <Route path={path} />
+        {s.partial && (
+          <div className="note">Showing open work and everything since {s.cutoff} (older settled POs are hidden to keep things fast).{' '}
+            <a href="#" onClick={e => { e.preventDefault(); run(loadFullHistory); }}>Load full history</a></div>
+        )}
+        <Guard resetKey={path}><Route path={path} /></Guard>
       </main>
     </>
   );

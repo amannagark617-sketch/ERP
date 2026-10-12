@@ -14,7 +14,7 @@ await build({ entryPoints: [join(dir, 'e.ts')], bundle: true, format: 'esm', out
 const M = await import(join(dir, 'b.mjs'));
 const host = M.createMemHost();
 M.setup(host, empty ? undefined : M.fixture(new Date().toISOString().slice(0, 10)));
-if (empty) host.update('access', 'Users', host.read('access', 'Users')[0].__row, { Password: 'admin-pass' });
+if (empty) host.update('Users', host.read('Users')[0].__row, { Password: 'admin-pass' });
 
 createServer((req, res) => {
   const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': '*' };

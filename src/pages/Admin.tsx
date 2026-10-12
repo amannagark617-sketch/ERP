@@ -28,9 +28,9 @@ export default function Admin() {
         <button className="btn primary" onClick={() => setEdit({ ...blank, isNew: true })}>+ New user</button>
       </div>
       <div className="note">
-        Users live in the <b>Users</b> tab of your Google Sheet. You can also edit it there directly: type a new plain-text password in the
-        Password column and it is secured automatically at that person's next login. Roles, permissions and approval limits are in the
-        <b> Roles</b>, <b>Permissions</b> and <b>ApprovalRules</b> tabs – changes apply the next time someone logs in or refreshes.
+        Users live in the <b>Users</b> tab of your Google Sheet (the same spreadsheet as all the data - share it with admins only). You can also edit it there directly: type a new plain-text password in the
+        Password column and it is secured automatically at that person's next login. What each role can do, and the approval limits, are set in the
+        <b> Roles</b> tab – changes apply the next time someone logs in or refreshes.
       </div>
       {edit && (
         <Card title={edit.isNew ? 'New user' : `Edit ${edit.loginId}`}>
@@ -40,7 +40,7 @@ export default function Admin() {
             <Field label="Role">
               <select value={edit.role} onChange={e => {
                 const r = roles.find(x => x.role === e.target.value);
-                setEdit({ ...edit, role: e.target.value, department: edit.department || r?.department || '', level: r?.level ?? edit.level });
+                setEdit({ ...edit, role: e.target.value, level: r?.level ?? edit.level });
               }}>
                 <option value="">Select…</option>{roles.map(r => <option key={r.role}>{r.role}</option>)}
               </select>

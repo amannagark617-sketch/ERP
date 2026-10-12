@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { actions, useAuth, useStore } from '../store';
 import { itemName } from '../domain';
-import { Badge, Card, Empty, Field, Link, run } from '../ui';
-import { fmtDate, inr } from '../utils';
+import { Badge, Card, Empty, Field, run } from '../ui';
+import { inr } from '../utils';
 import { Vendor } from '../types';
 
 type Draft = Omit<Vendor, 'id'> & { id?: string };
@@ -16,33 +16,24 @@ export default function Vendors() {
   const { can } = useAuth();
   const ho = can('master.manage');
   const [editing, setEditing] = useState<Draft | null>(null);
-  const [newItem, setNewItem] = useState('');
-  const [unit, setUnit] = useState('pcs');
   const [q, setQ] = useState('');
-  const open = s.queries.filter(x => x.status === 'Open');
-  const list = s.vendors.filter(v => !q || `${v.name} ${v.udyamNo} ${v.gstin} ${v.city}`.toLowerCase().includes(q.toLowerCase()));
+  const [showInactive, setShowInactive] = useState(false);
+  const list = s.vendors.filter(v => (showInactive || v.active) && (!q || `${v.name} ${v.udyamNo} ${v.gstin} ${v.city}`.toLowerCase().includes(q.toLowerCase())));
 
   return (
     <>
       <div className="row" style={{ justifyContent: 'space-between', marginBottom: 14 }}>
-        <h2 style={{ margin: 0 }}>Vendors &amp; Prices (master data)</h2>
+        <h2 style={{ margin: 0 }}>Vendors</h2>
         {ho && <button className="btn primary" onClick={() => setEditing({ ...blank })}>+ New vendor</button>}
       </div>
-      {!ho && <div className="note">Master data is managed by Head Office. You can view it here; prices can only be changed by HO.</div>}
-      <div className="note">This list is the <b>Vendors</b> and <b>VendorItems</b> tabs of the Google Sheet – you can also edit it there directly and press Refresh.</div>
-
-      {ho && open.length > 0 && (
-        <Card title={`Price queries from Inventory / Purchase (${open.length})`}>
-          <table><tbody>{open.map(x => (
-            <tr key={x.id}><td><Link to={`/pos/${x.poId}`}>{s.pos.find(p => p.id === x.poId)?.poNo}</Link></td><td>{itemName(s, x.itemId)}</td><td>{x.note}</td>
-              <td className="mut">{x.raisedBy}, {fmtDate(x.date)}</td><td className="r"><button className="btn sm" onClick={() => run(() => actions.resolveQuery(x.id))}>Mark resolved</button></td></tr>
-          ))}</tbody></table>
-        </Card>
-      )}
+      {!ho && <div className="note">Vendor details and prices are managed by Head Office. You can view them here.</div>}
 
       {editing && <VendorEditor v={editing} onClose={() => setEditing(null)} />}
 
-      <div className="row" style={{ marginBottom: 12 }}><input placeholder="Search vendor, Udyam, GSTIN, city…" value={q} onChange={e => setQ(e.target.value)} style={{ minWidth: 280 }} /></div>
+      <div className="row" style={{ marginBottom: 12 }}>
+        <input placeholder="Search vendor, Udyam, GSTIN, city…" value={q} onChange={e => setQ(e.target.value)} style={{ minWidth: 280 }} />
+        <label className="row"><input type="checkbox" checked={showInactive} onChange={e => setShowInactive(e.target.checked)} /> show inactive</label>
+      </div>
       {list.map(v => (
         <Card key={v.id} title={<>{v.name} {v.msme && <Badge>MSME</Badge>} {!v.active && <Badge>Rejected</Badge>}</>} actions={ho && <button className="btn sm" onClick={() => setEditing(structuredClone(v))}>Edit</button>}>
           <div className="form2">
@@ -53,24 +44,13 @@ export default function Vendors() {
               Bank {v.bankName || '—'} · A/c {v.accountNo || '—'} · IFSC {v.ifsc || '—'}
             </p>
           </div>
-          {v.items.length === 0 ? <Empty>No items linked.</Empty> : (
+          {v.items.length === 0 ? <Empty>No items on this vendor's price list.</Empty> : (
             <table style={{ maxWidth: 520 }}><thead><tr><th>Item</th><th className="r">Agreed price</th></tr></thead>
               <tbody>{v.items.map(i => <tr key={i.itemId}><td>{itemName(s, i.itemId)}</td><td className="r">{inr(i.price)}</td></tr>)}</tbody></table>
           )}
         </Card>
       ))}
       {list.length === 0 && <Empty>No vendors found.</Empty>}
-
-      <Card title="Item master">
-        <p>{s.items.map(i => `${i.name} (${i.unit})`).join(' · ') || 'No items yet.'}</p>
-        {ho && (
-          <div className="row">
-            <input placeholder="New item name" value={newItem} onChange={e => setNewItem(e.target.value)} />
-            <input placeholder="Unit" style={{ width: 80 }} value={unit} onChange={e => setUnit(e.target.value)} />
-            <button className="btn" onClick={async () => { if (newItem.trim() && await run(() => actions.addItem(newItem.trim(), unit || 'pcs'))) setNewItem(''); }}>Add item</button>
-          </div>
-        )}
-      </Card>
     </>
   );
 }
@@ -79,12 +59,13 @@ function VendorEditor({ v, onClose }: { v: Draft; onClose: () => void }) {
   const s = useStore();
   const [d, setD] = useState(v);
   const [saving, setSaving] = useState(false);
+  const [addItem, setAddItem] = useState('');
+  const [addPrice, setAddPrice] = useState(0);
   const f = (key: keyof Draft, label: string, props: Record<string, unknown> = {}) => (
     <Field label={label}><input value={String(d[key] ?? '')} onChange={e => setD({ ...d, [key]: e.target.value })} {...props} /></Field>
   );
-  const priceOf = (id: string) => d.items.find(i => i.itemId === id)?.price;
-  const setPrice = (id: string, price: number | undefined) =>
-    setD({ ...d, items: price === undefined ? d.items.filter(i => i.itemId !== id) : d.items.some(i => i.itemId === id) ? d.items.map(i => i.itemId === id ? { ...i, price } : i) : [...d.items, { itemId: id, price }] });
+  const setPrice = (itemId: string, price: number) => setD({ ...d, items: d.items.map(i => (i.itemId === itemId ? { ...i, price } : i)) });
+  const available = s.items.filter(i => i.active && !d.items.some(x => x.itemId === i.id));
   const save = async () => {
     if (!d.name.trim()) return alert('Enter the vendor name');
     if (d.msme && !d.udyamNo.trim() && !confirm('MSME vendor without a Udyam registration number. Save anyway?')) return;
@@ -105,13 +86,23 @@ function VendorEditor({ v, onClose }: { v: Draft; onClose: () => void }) {
           {f('udyamNo', 'Udyam registration no.', { placeholder: 'UDYAM-XX-00-0000000' })}
         </>}
         {f('bankName', 'Bank name')}{f('accountNo', 'Bank account no.')}{f('ifsc', 'IFSC')}
-        <Field label="Active"><select value={d.active ? 'Yes' : 'No'} onChange={e => setD({ ...d, active: e.target.value === 'Yes' })}><option>Yes</option><option>No</option></select></Field>
+        <Field label="Active" hint="Set to No to stop using this vendor. Old POs are kept."><select value={d.active ? 'Yes' : 'No'} onChange={e => setD({ ...d, active: e.target.value === 'Yes' })}><option>Yes</option><option>No</option></select></Field>
       </div>
-      <table style={{ maxWidth: 520, marginBottom: 12 }}>
-        <thead><tr><th>Item</th><th className="r">Agreed price (blank = not supplied)</th></tr></thead>
-        <tbody>{s.items.map(i => (
-          <tr key={i.id}><td>{i.name}</td><td className="r"><input type="number" min={0} style={{ width: 120 }} value={priceOf(i.id) ?? ''} onChange={e => setPrice(i.id, e.target.value === '' ? undefined : +e.target.value)} /></td></tr>
-        ))}</tbody>
+      <h3 style={{ margin: '8px 0' }}>This vendor's price list</h3>
+      <table style={{ maxWidth: 560, marginBottom: 8 }}>
+        <thead><tr><th>Item</th><th className="r">Agreed price</th><th></th></tr></thead>
+        <tbody>
+          {d.items.map(i => (
+            <tr key={i.itemId}><td>{itemName(s, i.itemId)}</td>
+              <td className="r"><input type="number" min={0} style={{ width: 120 }} value={i.price} onChange={e => setPrice(i.itemId, +e.target.value)} /></td>
+              <td className="r"><button className="btn sm danger" onClick={() => setD({ ...d, items: d.items.filter(x => x.itemId !== i.itemId) })}>Remove</button></td></tr>
+          ))}
+          <tr>
+            <td><select value={addItem} onChange={e => setAddItem(e.target.value)}><option value="">Add an item…</option>{available.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}</select></td>
+            <td className="r"><input type="number" min={0} style={{ width: 120 }} value={addPrice || ''} placeholder="Price" onChange={e => setAddPrice(+e.target.value)} /></td>
+            <td className="r"><button className="btn sm" disabled={!addItem || !(addPrice >= 0)} onClick={() => { setD({ ...d, items: [...d.items, { itemId: addItem, price: addPrice }] }); setAddItem(''); setAddPrice(0); }}>Add</button></td>
+          </tr>
+        </tbody>
       </table>
       <div className="row">
         <button className="btn primary" disabled={saving} onClick={save}>{saving ? 'Saving…' : 'Save vendor'}</button>

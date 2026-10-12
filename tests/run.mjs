@@ -7,32 +7,40 @@ import { createHash } from 'node:crypto';
 
 const dir = mkdtempSync(join(tmpdir(), 'erp-test-'));
 const entry = join(dir, 'entry.ts');
-writeFileSync(entry, `export * from '${process.cwd()}/src/shared/core'; export * from '${process.cwd()}/src/shared/memhost'; export * from '${process.cwd()}/src/shared/sha256'; export * from '${process.cwd()}/src/shared/schema'; export * from '${process.cwd()}/tests/fixture';`);
+const cwd = process.cwd();
+writeFileSync(entry, ['core', 'memhost', 'sha256', 'schema'].map(m => `export * from '${cwd}/src/shared/${m}';`).join('\n') + `\nexport * from '${cwd}/tests/fixture';`);
 const out = join(dir, 'bundle.mjs');
 await build({ entryPoints: [entry], bundle: true, format: 'esm', outfile: out, platform: 'node', logLevel: 'error' });
 const M = await import(out);
 
 let passed = 0;
 const test = async (name, fn) => { try { await fn(); passed++; console.log('  ✓', name); } catch (e) { console.error('  ✗', name, '\n   ', e.message); process.exitCode = 1; } };
+const TODAY = new Date().toISOString().slice(0, 10);
 
-// sha256 matches node
 for (const s of ['', 'abc', 'ünïcode ₹ 123', 'x'.repeat(200)]) assert.equal(M.sha256(s), createHash('sha256').update(s).digest('hex'));
 
 const host = M.createMemHost();
-M.setup(host, M.fixture('2026-10-12'));
+M.setup(host, M.fixture(TODAY));
 const call = (req) => M.handle(host, req);
 const login = (id, pw = id + '123') => call({ action: 'login', loginId: id, password: pw });
 const tokenOf = (id) => { const r = login(id); assert.ok(r.ok, r.error); return r.token; };
 const T = Object.fromEntries(['admin', 'navneet', 'factoryhead', 'mohit', 'ho', 'accounts', 'inventory'].map(u => [u, tokenOf(u)]));
-const boot = (u) => call({ action: 'bootstrap', token: T[u] });
-const commit = (u, name, ops) => call({ action: 'commit', token: T[u], name, ops });
+const boot = (u, all = false) => call({ action: 'bootstrap', token: T[u], all });
+const commit = (u, name, ops, note = '') => call({ action: 'commit', token: T[u], name, ops, note });
 const up = (table, row) => ({ t: 'upsert', table, row });
+const sheetRow = (tab, pred) => host.read(tab).find(pred);
+
+console.log('single spreadsheet layout');
+await test('12 tabs, logins and data in the same file', () => {
+  const tabs = Object.values(M.TABLES).map(t => t.sheet);
+  assert.equal(tabs.length, 12);
+  assert.deepEqual(tabs.slice(0, 3), ['Users', 'Roles', 'Settings']);
+  assert.equal(host.read('Users').length, 7); assert.ok(host.read('Vendors').length >= 4);
+});
 
 console.log('auth');
 await test('plain-text password is hashed on first login', () => {
-  const u = host.read('access', 'Users').find(r => r['Login ID'] === 'navneet');
-  assert.ok(u.Password.startsWith('sha256:'), u.Password);
-  assert.ok(login('navneet').ok);
+  assert.ok(sheetRow('Users', r => r['Login ID'] === 'navneet').Password.startsWith('sha256:'));
 });
 await test('wrong password rejected, 5 failures lock the account', () => {
   assert.equal(login('accounts', 'nope').ok, false);
@@ -40,138 +48,245 @@ await test('wrong password rejected, 5 failures lock the account', () => {
   assert.match(login('accounts').error, /Too many/);
   host.cacheRemove('fail:accounts');
 });
-await test('inactive user cannot log in; no/expired token rejected', () => {
-  const rows = host.read('access', 'Users'); const r = rows.find(x => x['Login ID'] === 'inventory');
-  host.update('access', 'Users', r.__row, { 'Active (Yes/No)': 'No' });
+await test('inactive user cannot log in; bogus token rejected', () => {
+  const r = sheetRow('Users', x => x['Login ID'] === 'inventory');
+  host.update('Users', r.__row, { 'Active (Yes/No)': 'No' });
   assert.equal(login('inventory').ok, false);
-  host.update('access', 'Users', r.__row, { 'Active (Yes/No)': 'Yes' });
+  host.update('Users', r.__row, { 'Active (Yes/No)': 'Yes' });
   assert.equal(call({ action: 'bootstrap', token: 'bogus' }).code, 'AUTH');
 });
-await test('bootstrap never leaks users/passwords; permissions follow role', () => {
+await test('bootstrap never leaks users/passwords; permissions come from the Roles tab', () => {
   const b = boot('navneet');
   assert.ok(b.ok); assert.equal(b.data.users, undefined); assert.ok(!JSON.stringify(b).includes('sha256:'));
   assert.ok(b.user.permissions.includes('po.save')); assert.ok(!b.user.permissions.includes('po.approve'));
+  assert.ok(boot('factoryhead').user.permissions.includes('po.approve') && boot('mohit').user.permissions.includes('po.approve'));
+  const inv = boot('inventory').user.permissions;
+  assert.ok(inv.includes('receipt.create') && inv.includes('stock.issue') && !inv.includes('stock.adjust'));
   assert.ok(boot('admin').user.permissions.includes('users.manage'));
-  assert.ok(!b.user.permissions.includes('users.manage'));
+  assert.ok(!boot('admin').user.permissions.includes('po.approve'), 'admin is not an approver unless the role has an approval level');
 });
 
 console.log('PO workflow');
 const mkPO = (qty, extra = {}) => [
-  up('pos', { id: 'p1', vendorId: 'V2', terms: 't', advanceRequired: false, advanceAmount: 0, expectedDate: '2026-11-01', status: 'Draft', advanceStatus: 'Not Required', route: '', step: 0, date: '2026-10-12', ...extra }),
+  up('pos', { id: 'p1', vendorId: 'V2', terms: 't', advanceRequired: false, advanceAmount: 0, expectedDate: '2026-11-01', status: 'Draft', advanceStatus: 'Not Required', route: '', step: 0, date: TODAY, ...extra }),
   up('poLines', { id: 'p1:I3', poId: 'p1', itemId: 'I3', qty, price: 1850 }),
 ];
-await test('price cannot be tampered at PO creation', () => {
+await test('price cannot be tampered at PO creation; wrong role / table refused', () => {
   const ops = mkPO(600); ops[1].row.price = 1;
   assert.match(commit('navneet', 'po.save', ops).error, /vendor price/);
-});
-await test('wrong role / wrong table refused', () => {
   assert.equal(commit('inventory', 'po.save', mkPO(10)).code, 'FORBIDDEN');
   assert.equal(commit('navneet', 'po.save', [up('vendors', { id: 'V9', name: 'x' })]).code, 'FORBIDDEN');
   assert.equal(commit('navneet', 'master.manage', [up('vendors', { id: 'V9', name: 'x' })]).code, 'FORBIDDEN');
 });
-await test('PO saved as draft, server assigns number', () => {
-  const r = commit('navneet', 'po.save', mkPO(600));
+await test('PO saved as draft: server assigns number and fills readable names', () => {
+  const r = commit('navneet', 'po.save', mkPO(600), 'Draft created');
   assert.ok(r.ok, r.error);
   assert.equal(r.applied.find(a => a.table === 'pos').row.poNo, 'PO-0004');
+  const row = sheetRow('PurchaseOrders', x => x['PO No'] === 'PO-0004');
+  assert.equal(row.Vendor, 'Foam & Fabric Traders');
+  assert.equal(sheetRow('POLines', x => x['PO No'] === 'PO-0004').Item, 'Foam sheet 40D');
 });
 await test('cannot skip approval by submitting as Approved or with a short route', () => {
   const v = boot('navneet').data.pos.find(p => p.id === 'p1')._v;
-  const base = { id: 'p1', vendorId: 'V2', terms: 't', advanceRequired: false, advanceAmount: 0, expectedDate: '2026-11-01', advanceStatus: 'Not Required', date: '2026-10-12', _v: v };
+  const base = { id: 'p1', vendorId: 'V2', terms: 't', advanceRequired: false, advanceAmount: 0, expectedDate: '2026-11-01', advanceStatus: 'Not Required', date: TODAY, _v: v };
   assert.match(commit('navneet', 'po.submit', [up('pos', { ...base, status: 'Approved', route: '', step: 0 })]).error, /route/);
-  assert.match(commit('navneet', 'po.submit', [up('pos', { ...base, status: 'Pending Factory Head', route: 'Factory Head', step: 0 })]).error, /route/); // value > 10L needs CA too
+  assert.match(commit('navneet', 'po.submit', [up('pos', { ...base, status: 'Pending Factory Head', route: 'Factory Head', step: 0 })]).error, /route/);
 });
-await test('submit, FH approves, CA approves, Purchase sends', () => {
-  let b = boot('navneet'); let v = b.data.pos.find(p => p.id === 'p1')._v;
-  const base = { id: 'p1', vendorId: 'V2', terms: 't', advanceRequired: false, advanceAmount: 0, expectedDate: '2026-11-01', advanceStatus: 'Not Required', date: '2026-10-12' };
-  let r = commit('navneet', 'po.submit', [up('pos', { ...base, status: 'Pending Factory Head', route: 'Factory Head,CA', step: 0, _v: v })]);
-  assert.ok(r.ok, r.error);
-  // wrong approver and self-approval
-  v = r.applied[0].row._v;
-  assert.equal(commit('mohit', 'po.approve', [up('pos', { ...base, status: 'Approved', route: 'Factory Head,CA', step: 2, _v: v })]).code, 'FORBIDDEN');
-  assert.equal(commit('navneet', 'po.approve', [up('pos', { ...base, status: 'Approved', route: 'Factory Head,CA', step: 2, _v: v })]).code, 'FORBIDDEN');
-  // FH cannot jump straight to Approved
-  assert.match(commit('factoryhead', 'po.approve', [up('pos', { ...base, status: 'Approved', route: 'Factory Head,CA', step: 2, _v: v })]).error, /Invalid approval step/);
-  r = commit('factoryhead', 'po.approve', [up('pos', { ...base, status: 'Pending CA', route: 'Factory Head,CA', step: 1, _v: v })]);
+await test('submit, FH approves, CA approves, Purchase sends; history recorded', () => {
+  let v = boot('navneet').data.pos.find(p => p.id === 'p1')._v;
+  const base = { id: 'p1', vendorId: 'V2', terms: 't', advanceRequired: false, advanceAmount: 0, expectedDate: '2026-11-01', advanceStatus: 'Not Required', date: TODAY };
+  const R = 'Factory Head,CA';
+  let r = commit('navneet', 'po.submit', [up('pos', { ...base, status: 'Pending Factory Head', route: R, step: 0, _v: v })], 'Submitted for approval');
   assert.ok(r.ok, r.error); v = r.applied[0].row._v;
-  r = commit('mohit', 'po.approve', [up('pos', { ...base, status: 'Approved', route: 'Factory Head,CA', step: 2, _v: v })]);
+  assert.equal(commit('mohit', 'po.approve', [up('pos', { ...base, status: 'Approved', route: R, step: 2, _v: v })]).code, 'FORBIDDEN');
+  assert.equal(commit('navneet', 'po.approve', [up('pos', { ...base, status: 'Approved', route: R, step: 2, _v: v })]).code, 'FORBIDDEN');
+  assert.match(commit('factoryhead', 'po.approve', [up('pos', { ...base, status: 'Approved', route: R, step: 2, _v: v })]).error, /Invalid approval step/);
+  r = commit('factoryhead', 'po.approve', [up('pos', { ...base, status: 'Pending CA', route: R, step: 1, _v: v })], 'Approved – looks fine');
   assert.ok(r.ok, r.error); v = r.applied[0].row._v;
-  assert.equal(commit('accounts', 'po.send', [up('pos', { ...base, status: 'Sent to Vendor', route: 'Factory Head,CA', step: 2, _v: v })]).code, 'FORBIDDEN');
-  r = commit('navneet', 'po.send', [up('pos', { ...base, status: 'Sent to Vendor', route: 'Factory Head,CA', step: 2, sentVia: 'Email', sentTo: 'x', _v: v })]);
+  r = commit('mohit', 'po.approve', [up('pos', { ...base, status: 'Approved', route: R, step: 2, _v: v })], 'Approved');
+  assert.ok(r.ok, r.error); v = r.applied[0].row._v;
+  assert.equal(commit('accounts', 'po.send', [up('pos', { ...base, status: 'Sent to Vendor', route: R, step: 2, sentVia: 'Email', sentTo: 'x', _v: v })]).code, 'FORBIDDEN');
+  r = commit('navneet', 'po.send', [up('pos', { ...base, status: 'Sent to Vendor', route: R, step: 2, sentVia: 'Email', sentTo: 'x', _v: v })], 'Sent to vendor via Email');
   assert.ok(r.ok, r.error);
+  const h = call({ action: 'history', token: T.navneet, ref: 'p1' }).entries.map(e => e.text);
+  assert.deepEqual(h, ['Draft created', 'Submitted for approval', 'Approved – looks fine', 'Approved', 'Sent to vendor via Email']);
 });
 await test('stale version is a conflict', () => {
-  const base = { id: 'po2', vendorId: 'V2', terms: 'edited', advanceRequired: false, advanceAmount: 0, expectedDate: '2026-11-01', status: 'Draft', advanceStatus: 'Not Required', date: '2026-10-12', route: '', step: 0 };
-  // po2 is Pending, so first make a draft conflict with po3
   const po3 = boot('navneet').data.pos.find(p => p.id === 'po3');
-  const row = { ...po3, terms: 'a', _v: po3._v };
+  const row = { ...po3, terms: 'a' };
   assert.ok(commit('navneet', 'po.save', [up('pos', row)]).ok);
   assert.equal(commit('navneet', 'po.save', [up('pos', { ...row, terms: 'b' })]).code, 'CONFLICT');
-  void base;
 });
 
-console.log('receipt & payment');
-await test('receipt: price locked, total must match lines; advance flows; payments capped', () => {
-  const rc = (price, total) => [
-    up('receipts', { id: 'r1', poId: 'po1', invoiceNo: 'INV-1', invoiceDate: '2026-10-12', receivedDate: '2026-10-12', subtotal: 240000, taxTotal: 43200, grandTotal: total, advanceAdjusted: 100000, payable: total - 100000, accepted: false, acceptedDate: '', invoiceFile: '' }),
-    up('receiptLines', { id: 'r1:I1', receiptId: 'r1', itemId: 'I1', qty: 100, price, taxRate: 18 }),
+console.log('goods receipt = stock in');
+const rcpt = (o = {}) => {
+  const { price = 2400, qty = 100, total = 283200, invoiceNo = 'INV-1', adj = 100000, payable } = o;
+  return [
+    up('receipts', { id: 'r1', grnNo: '', type: 'Invoice', poId: 'po1', vendorId: 'V1', invoiceNo, invoiceDate: TODAY, receivedDate: TODAY, subtotal: 240000, taxTotal: 43200, grandTotal: total, advanceAdjusted: adj, payable: payable ?? total - adj, dueDate: TODAY, accepted: false, acceptedDate: '', invoiceFile: '' }),
+    up('stock', { id: 'r1:I1', date: TODAY, itemId: 'I1', type: 'IN', qty, price, taxRate: 18, receiptId: 'r1', toDept: '', note: '' }),
   ];
-  assert.match(commit('inventory', 'receipt.create', rc(1, 283200)).error, /PO price/);
-  assert.match(commit('inventory', 'receipt.create', rc(2400, 1000)).error, /does not match/);
-  let r = commit('inventory', 'receipt.create', rc(2400, 283200)); assert.ok(r.ok, r.error);
+};
+await test('receipt is verified on the server: price, total, quantity, advance, duplicate invoice', () => {
+  assert.match(commit('inventory', 'receipt.create', rcpt({ price: 1 })).error, /PO price/);
+  assert.match(commit('inventory', 'receipt.create', rcpt({ total: 1000 })).error, /does not match/);
+  assert.match(commit('inventory', 'receipt.create', rcpt({ qty: 250, total: 708000 })).error, /more than the pending/);
+  assert.match(commit('inventory', 'receipt.create', rcpt({ adj: 0 })).error, /Advance adjustment/);
+  assert.equal(commit('purchase' in T ? 'navneet' : 'navneet', 'receipt.create', rcpt()).code, 'FORBIDDEN');
+  const r = commit('inventory', 'receipt.create', rcpt(), 'Goods received, invoice INV-1');
+  assert.ok(r.ok, r.error);
   assert.equal(r.applied.find(a => a.table === 'receipts').row.grnNo, 'GRN-0001');
-  const pay = (amount) => [up('payments', { id: 'pay-' + amount, kind: 'invoice', poId: 'po1', receiptId: 'r1', openingId: '', amount, date: '2026-10-13', screenshot: '' })];
-  assert.match(commit('accounts', 'payment.make', pay(100)).error, /Accept the invoice/);
+  assert.equal(sheetRow('Receipts', x => x['GRN No'] === 'GRN-0001').Vendor, 'Sharma Mechanisms');
+  assert.equal(sheetRow('Stock', x => x.Key === 'r1:I1')['GRN No'], 'GRN-0001');
+  const dup = rcpt({ invoiceNo: 'inv-1' }); dup[0].row.id = 'r2'; dup[1].row.id = 'r2:I1'; dup[1].row.receiptId = 'r2';
+  assert.match(commit('inventory', 'receipt.create', dup).error, /already booked/);
+});
+await test('stock in from the receipt shows in balances', () => {
+  const b = boot('inventory');
+  const bal = (id) => (b.stockBase[id] || 0) + b.data.stock.reduce((a, s) => a + (s.itemId === id ? (s.type === 'OUT' ? -s.qty : s.qty) : 0), 0);
+  assert.equal(bal('I1'), 100); assert.equal(bal('I3'), 100);
+});
+await test('accept invoice (Accounts only) then pay; overpay and edits refused', () => {
   const rr = boot('accounts').data.receipts.find(x => x.id === 'r1');
+  const pay = (amount, id = 'pay-' + amount) => [up('payments', { id, kind: 'invoice', poId: 'po1', receiptId: 'r1', amount, date: TODAY, screenshot: '' })];
+  assert.match(commit('accounts', 'payment.make', pay(100)).error, /Accept the invoice/);
   assert.equal(commit('inventory', 'invoice.accept', [up('receipts', { ...rr, accepted: true })]).code, 'FORBIDDEN');
-  assert.ok(commit('accounts', 'invoice.accept', [up('receipts', { ...rr, accepted: true, acceptedDate: '2026-10-13' })]).ok);
+  assert.ok(commit('accounts', 'invoice.accept', [up('receipts', { ...rr, accepted: true, acceptedDate: TODAY })]).ok);
   assert.match(commit('accounts', 'payment.make', pay(999999)).error, /more than the balance/);
   assert.ok(commit('accounts', 'payment.make', pay(183200)).ok);
   assert.match(commit('accounts', 'payment.make', pay(1)).error, /more than the balance/);
-});
-await test('payments cannot be edited or deleted afterwards', () => {
   const p = boot('accounts').data.payments.find(x => x.id === 'pay-183200');
   assert.equal(commit('accounts', 'payment.make', [up('payments', { ...p, amount: 1 })]).code, 'FORBIDDEN');
   assert.equal(commit('accounts', 'payment.make', [{ t: 'delete', table: 'payments', id: p.id }]).code, 'FORBIDDEN');
 });
+await test('old pending balance is a receipt of type Opening, paid like an invoice', () => {
+  const ob = (o = {}) => [up('receipts', { id: 'ob2', grnNo: '', type: 'Opening', poId: '', vendorId: 'V1', invoiceNo: 'Old bill A-9', invoiceDate: TODAY, receivedDate: TODAY, subtotal: 5000, taxTotal: 0, grandTotal: 5000, advanceAdjusted: 0, payable: 5000, dueDate: TODAY, accepted: true, acceptedDate: TODAY, invoiceFile: '', ...o })];
+  assert.equal(commit('inventory', 'opening.add', ob()).code, 'FORBIDDEN');
+  assert.match(commit('accounts', 'opening.add', ob({ accepted: false })).error, /Invalid old balance/);
+  assert.ok(commit('accounts', 'opening.add', ob()).ok);
+  assert.ok(commit('accounts', 'payment.make', [up('payments', { id: 'pob', kind: 'invoice', poId: '', receiptId: 'ob2', amount: 5000, date: TODAY, screenshot: '' })]).ok);
+});
 
-console.log('master data, sheet edits, admin');
-await test('HO edits vendor (Udyam etc); others cannot', () => {
+console.log('stock out & adjustments');
+const stk = (o) => [up('stock', { id: 's-' + Math.random().toString(36).slice(2), date: TODAY, itemId: 'I1', type: 'OUT', qty: 30, toDept: 'Production', note: '', receiptId: '', price: 0, taxRate: 0, ...o })];
+await test('issue stock: needs permission, a destination and enough on hand', () => {
+  assert.equal(commit('navneet', 'stock.issue', stk({})).code, 'FORBIDDEN');
+  assert.match(commit('inventory', 'stock.issue', stk({ toDept: '' })).error, /who the stock is issued to/);
+  assert.match(commit('inventory', 'stock.issue', stk({ qty: 500 })).error, /Only 100 pcs/);
+  assert.ok(commit('inventory', 'stock.issue', stk({}), 'Issued 30 to Production').ok);
+  const b = boot('inventory');
+  assert.equal(b.stockBase.I1 + b.data.stock.filter(s => s.itemId === 'I1').reduce((a, s) => a + (s.type === 'OUT' ? -s.qty : s.qty), 0), 70);
+});
+await test('adjustments need the Adjust Stock capability and a reason', () => {
+  assert.equal(commit('inventory', 'stock.adjust', stk({ type: 'ADJUST', qty: -2, note: 'damaged' })).code, 'FORBIDDEN');
+  assert.match(commit('ho', 'stock.adjust', stk({ type: 'ADJUST', qty: -2, note: '' })).error, /reason/);
+  assert.ok(commit('ho', 'stock.adjust', stk({ type: 'ADJUST', qty: -2, note: 'damaged in handling' })).ok);
+});
+
+console.log('price queries');
+await test('Inventory raises a query on a PO line, HO resolves it, nobody can change the PO through it', () => {
+  const l = boot('inventory').data.poLines.find(x => x.id === 'po1:I1');
+  assert.match(commit('inventory', 'query.raise', [up('poLines', { ...l, queryNote: '', queryStatus: 'Open' })]).error, /Invalid price query/);
+  assert.match(commit('inventory', 'query.raise', [up('poLines', { ...l, qty: 1, queryNote: 'x', queryStatus: 'Open' })]).error, /Invalid price query/);
+  assert.ok(commit('inventory', 'query.raise', [up('poLines', { ...l, queryNote: 'Invoice shows 2500', queryStatus: 'Open' })]).ok);
+  const l2 = boot('ho').data.poLines.find(x => x.id === 'po1:I1');
+  assert.equal(l2.queryBy, 'Inventory (Factory)');
+  assert.equal(commit('navneet', 'master.manage', [up('poLines', { ...l2, queryStatus: 'Resolved' })]).code, 'FORBIDDEN');
+  assert.match(commit('ho', 'master.manage', [up('poLines', { ...l2, queryStatus: 'Resolved', price: 1 })]).error, /resolve/);
+  assert.ok(commit('ho', 'master.manage', [up('poLines', { ...l2, queryStatus: 'Resolved' })]).ok);
+});
+
+console.log('master data: several vendors, one item');
+await test('same item from several vendors at different prices; add and remove prices', () => {
+  const prices = () => boot('ho').data.prices.filter(p => p.itemId === 'I3').map(p => [p.vendorId, p.price]).sort();
+  assert.deepEqual(prices(), [['V2', 1850], ['V4', 1790]]);
+  assert.ok(commit('ho', 'master.manage', [up('prices', { id: 'V1:I3', vendorId: 'V1', itemId: 'I3', price: 1700 })]).ok);
+  assert.equal(prices().length, 3);
+  assert.equal(sheetRow('Prices', r => r['Key (auto)'] === 'V1:I3')['Vendor Name'], 'Sharma Mechanisms');
+  assert.match(commit('ho', 'master.manage', [up('prices', { id: 'V9:I3', vendorId: 'V9', itemId: 'I3', price: 1 })]).error, /Unknown vendor/);
+  assert.equal(commit('navneet', 'master.manage', [up('prices', { id: 'V1:I3', vendorId: 'V1', itemId: 'I3', price: 1 })]).code, 'FORBIDDEN');
+  assert.ok(commit('ho', 'master.manage', [{ t: 'delete', table: 'prices', id: 'V1:I3' }]).ok);
+  assert.equal(prices().length, 2);
+  assert.equal(commit('ho', 'master.manage', [{ t: 'delete', table: 'vendors', id: 'V1' }]).code, 'FORBIDDEN');
+});
+await test('new PO price follows the vendor-specific price list', () => {
+  const ops = [up('pos', { id: 'pv4', vendorId: 'V4', terms: '', advanceRequired: false, advanceAmount: 0, expectedDate: '2026-12-01', status: 'Draft', advanceStatus: 'Not Required', route: '', step: 0, date: TODAY }),
+    up('poLines', { id: 'pv4:I3', poId: 'pv4', itemId: 'I3', qty: 10, price: 1850 })];
+  assert.match(commit('navneet', 'po.save', ops).error, /vendor price/);
+  ops[1].row.price = 1790;
+  assert.ok(commit('navneet', 'po.save', ops).ok);
+});
+await test('formula injection neutralised; HO edits Udyam details', () => {
   const v = boot('ho').data.vendors.find(x => x.id === 'V1');
-  assert.equal(v.udyamNo, 'UDYAM-DL-01-0000001'); assert.equal(v.msme, true);
-  assert.ok(commit('ho', 'master.manage', [up('vendors', { ...v, udyamNo: 'UDYAM-DL-09-9999999' })]).ok);
-  assert.equal(commit('purchase' in T ? 'navneet' : 'navneet', 'master.manage', [up('vendors', { ...v, name: 'hacked' })]).code, 'FORBIDDEN');
+  assert.equal(v.udyamNo, 'UDYAM-DL-01-0000001');
+  assert.ok(commit('ho', 'master.manage', [up('vendors', { ...v, contact: '=HYPERLINK("http://evil")', udyamNo: 'UDYAM-DL-09-9999999' })]).ok);
+  const row = sheetRow('Vendors', r => r['Vendor ID'] === 'V1');
+  assert.ok(row['Contact Person'].startsWith(' =') && row['Udyam Registration No'] === 'UDYAM-DL-09-9999999');
 });
-await test('formula injection neutralised', () => {
-  const v = boot('ho').data.vendors.find(x => x.id === 'V2');
-  commit('ho', 'master.manage', [up('vendors', { ...v, contact: '=HYPERLINK("http://evil")' })]);
-  assert.ok(host.read('data', 'Vendors').find(r => r['Vendor ID'] === 'V2')['Contact Person'].startsWith(' ='));
+
+console.log('editing the Sheet by hand');
+await test('vendor / item rows typed by hand get IDs and default to Active', () => {
+  host.append('Vendors', { 'Vendor Name': 'Hand Typed Co', 'MSME (Yes/No)': 'Yes', 'Udyam Registration No': 'UDYAM-XX-00-0000000' });
+  host.append('Items', { 'Item Name': 'Zip', Unit: 'pcs' });
+  const b = boot('ho');
+  const v = b.data.vendors.find(x => x.name === 'Hand Typed Co'); const i = b.data.items.find(x => x.name === 'Zip');
+  assert.ok(/^V\d+$/.test(v.id) && v.active && v.msme); assert.ok(/^I\d+$/.test(i.id) && i.active);
 });
-await test('a vendor row typed by hand into the Sheet gets an ID', () => {
-  host.append('data', 'Vendors', { 'Vendor Name': 'Hand Typed Co', 'MSME (Yes/No)': 'Yes', 'Udyam Registration No': 'UDYAM-XX-00-0000000', 'Active (Yes/No)': 'Yes' });
-  const vs = boot('ho').data.vendors;
-  assert.ok(vs.find(v => v.name === 'Hand Typed Co' && /^V\d+$/.test(v.id)));
+await test('price typed by names only is resolved to IDs', () => {
+  host.append('Prices', { 'Vendor Name': 'bharat foam', 'Item Name': 'LEATHERETTE FABRIC', 'Agreed Price (Rs)': 400 });
+  const p = boot('ho').data.prices.find(x => x.vendorId === 'V4' && x.itemId === 'I4');
+  assert.ok(p && p.price === 400 && p.id === 'V4:I4');
+  assert.equal(sheetRow('Prices', r => r['Key (auto)'] === 'V4:I4')['Vendor Name'], 'Bharat Foam');
 });
-await test('a role/permission/rule edited in the Sheet takes effect immediately', () => {
-  const r = host.read('access', 'ApprovalRules').find(x => x['Approver Role'] === 'CA');
-  host.update('access', 'ApprovalRules', r.__row, { 'Applies When PO Value Above': 5000000 });
-  assert.equal(boot('navneet').config.approvalRules.find(x => x.approverRole === 'CA').fromValue, 5000000);
-  host.update('access', 'ApprovalRules', r.__row, { 'Applies When PO Value Above': 1000000 });
-  const perm = host.read('access', 'Permissions').find(x => x.Action === 'query.raise');
-  host.update('access', 'Permissions', perm.__row, { 'Allowed Roles (comma separated, * = everyone)': 'Inventory' });
-  assert.ok(!boot('navneet').user.permissions.includes('query.raise'));
+await test('Roles tab edits change permissions and the approval chain immediately', () => {
+  const ca = sheetRow('Roles', x => x.Role === 'CA');
+  const key = 'Approves POs above Rs (blank = not an approver)';
+  host.update('Roles', ca.__row, { [key]: 5000000 });
+  assert.deepEqual(boot('navneet').config.approvers.map(a => [a.role, a.above]), [['Factory Head', 0], ['CA', 5000000]]);
+  const base = { id: 'p5', vendorId: 'V2', terms: '', advanceRequired: false, advanceAmount: 0, expectedDate: '2026-11-01', advanceStatus: 'Not Required', date: TODAY };
+  const lines = [up('poLines', { id: 'p5:I3', poId: 'p5', itemId: 'I3', qty: 600, price: 1850 })]; // 1.11M: now only Factory Head
+  assert.match(commit('navneet', 'po.save', [up('pos', { ...base, status: 'Pending Factory Head', route: 'Factory Head,CA', step: 0 }), ...lines]).error, /route/);
+  assert.ok(commit('navneet', 'po.save', [up('pos', { ...base, status: 'Pending Factory Head', route: 'Factory Head', step: 0 }), ...lines]).ok);
+  host.update('Roles', ca.__row, { [key]: 1000000 });
+  const pur = sheetRow('Roles', x => x.Role === 'Purchase');
+  host.update('Roles', pur.__row, { 'Create & Send POs': 'No' });
+  assert.ok(!boot('navneet').user.permissions.includes('po.save'));
+  host.update('Roles', pur.__row, { 'Create & Send POs': 'Yes' });
 });
+
+console.log('long-term use: only recent / open records load by default');
+await test('a PO settled two years ago stays in the Sheet but is not loaded unless asked', () => {
+  const b = boot('accounts');
+  assert.ok(b.partial);
+  assert.ok(!b.data.pos.some(p => p.id === 'po9') && !b.data.stock.some(s => s.id === 'r9:I4') && !b.data.payments.some(p => p.id === 'pay9'));
+  assert.equal(b.stockBase.I4, 10, 'its stock is still counted');
+  const all = boot('accounts', true);
+  assert.ok(all.data.pos.some(p => p.id === 'po9') && all.data.stock.some(s => s.id === 'r9:I4') && !all.partial);
+  assert.equal(all.stockBase.I4 || 0, 0);
+});
+await test('open work always loads, even if old', () => {
+  const b = boot('accounts');
+  assert.ok(b.data.pos.some(p => p.id === 'po1'));
+  assert.ok(b.data.receipts.some(r => r.id === 'ob1'), 'unpaid old balance still loads');
+});
+await test('the change stamp moves on every save (cheap polling)', () => {
+  const s1 = call({ action: 'stamp', token: T.navneet }).stamp;
+  commit('inventory', 'stock.issue', stk({ qty: 1 }));
+  assert.notEqual(call({ action: 'stamp', token: T.navneet }).stamp, s1);
+  assert.equal(call({ action: 'stamp', token: 'bogus' }).code, 'AUTH');
+});
+
+console.log('users, files');
 await test('admin manages users; password reset works; non-admin refused', () => {
   assert.equal(call({ action: 'users.list', token: T.navneet }).code, 'FORBIDDEN');
   const r = call({ action: 'users.save', token: T.admin, user: { loginId: 'newbie', name: 'New B', role: 'Purchase', department: 'Purchase', level: 2, active: true, password: 'secret1' } });
-  assert.ok(r.ok, r.error);
-  assert.ok(login('newbie', 'secret1').ok);
+  assert.ok(r.ok, r.error); assert.ok(login('newbie', 'secret1').ok);
   assert.match(call({ action: 'users.save', token: T.admin, user: { loginId: 'bad one', role: 'Purchase', password: 'secret1' } }).error, /Login ID/);
   assert.match(call({ action: 'users.save', token: T.admin, user: { loginId: 'zed', role: 'Nonexistent', password: 'secret1' } }).error, /role/i);
   assert.equal(call({ action: 'changePassword', token: T.navneet, oldPassword: 'wrong', newPassword: 'abcdef' }).ok, false);
   assert.ok(call({ action: 'changePassword', token: T.navneet, oldPassword: 'navneet123', newPassword: 'abcdef' }).ok);
   assert.ok(login('navneet', 'abcdef').ok);
 });
-await test('files: images/pdf only, round-trip', () => {
+await test('files: images/pdf only, round-trip, login required', () => {
   const b64 = Buffer.from('hello').toString('base64');
   assert.equal(call({ action: 'upload', token: T.accounts, name: 'a.exe', mime: 'application/x-msdownload', data: b64 }).ok, false);
   const r = call({ action: 'upload', token: T.accounts, name: 'shot.png', mime: 'image/png', data: b64, folder: 'PO-0001' });
@@ -179,27 +294,22 @@ await test('files: images/pdf only, round-trip', () => {
   assert.equal(call({ action: 'file', token: T.accounts, fileId: r.fileId }).base64, b64);
   assert.equal(call({ action: 'file', token: 'bogus', fileId: r.fileId }).ok, false);
 });
-await test('audit log records writes', () => assert.ok(host.read('data', 'AuditLog').some(a => a.Action === 'po.approve')));
+await test('log records every write', () => assert.ok(host.read('Log').some(a => a.Action === 'po.approve') && host.read('Log').length > 10));
 
 console.log('fresh install (no sample data)');
 await test('a fresh setup has no business data and no usable password', () => {
   const h2 = M.createMemHost();
   M.setup(h2);
-  assert.equal(h2.read('data', 'Vendors').length, 0); assert.equal(h2.read('data', 'PurchaseOrders').length, 0);
-  assert.equal(h2.read('access', 'Users').length, 1);
-  assert.equal(h2.read('data', 'Users').length, 0, 'logins are NOT in the data spreadsheet');
-  assert.equal(h2.read('access', 'Vendors').length, 0, 'business data is NOT in the access spreadsheet');
-  const r = M.handle(h2, { action: 'login', loginId: 'admin', password: '' });
-  assert.equal(r.ok, false);
+  for (const tab of ['Vendors', 'Items', 'Prices', 'PurchaseOrders', 'POLines', 'Receipts', 'Payments', 'Stock']) assert.equal(h2.read(tab).length, 0, tab);
+  assert.equal(h2.read('Users').length, 1); assert.equal(h2.read('Roles').length, 7);
   assert.match(M.handle(h2, { action: 'login', loginId: 'admin', password: 'anything' }).error, /No password has been set/);
-  // admin types a password into the Users sheet
-  const u = h2.read('access', 'Users')[0];
-  h2.update('access', 'Users', u.__row, { Password: 'My-Secret-1' });
+  h2.update('Users', h2.read('Users')[0].__row, { Password: 'My-Secret-1' });
   const ok = M.handle(h2, { action: 'login', loginId: 'admin', password: 'My-Secret-1' });
   assert.ok(ok.ok, ok.error);
-  assert.ok(h2.read('access', 'Users')[0].Password.startsWith('sha256:'));
+  assert.ok(h2.read('Users')[0].Password.startsWith('sha256:'));
   const b = M.handle(h2, { action: 'bootstrap', token: ok.token });
   assert.equal(b.data.vendors.length, 0); assert.ok(b.user.permissions.includes('users.manage'));
+  assert.equal(M.handle(h2, { action: 'bootstrap', token: ok.token }).partial, false);
 });
 
 console.log(`\n${passed} passed`);

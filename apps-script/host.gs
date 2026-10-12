@@ -1,40 +1,29 @@
 /**
- * Little Nap ERP – Google Apps Script host.
+ * Little Nap ERP - Google Apps Script host.
  * `Core` (bundled below this file's contents in Code.gs) holds all the logic; this file only talks to Sheets / Drive.
  *
- * TWO Google Spreadsheet files are used:
- *   DATA   – the sheet this script is attached to: vendors, POs, receipts, payments, audit log …
- *   ACCESS – a separate file, created automatically by setup(): Users (Login ID + password), Roles, Permissions,
- *            ApprovalRules, Settings. Share it with the Admin only.
+ * EVERYTHING lives in ONE Google Spreadsheet: the one this script is attached to
+ * (Extensions > Apps Script). Tabs, logins, data - all in that single file.
  *
- * See README.md  →  "Activate the app"  for the step-by-step guide.
- *
+ * See README.md  ->  "Activate the app"  for the step-by-step guide.
  * After changing this file later: Deploy > Manage deployments > Edit > New version (the URL stays the same).
  */
 
-// Optional: to use an ACCESS sheet you already made, paste its ID here (the long text in its URL between /d/ and /edit).
-// Leave empty and setup() will create one for you.
-var ACCESS_SPREADSHEET_ID = '';
-
 var ROOT_FOLDER_NAME = 'Little Nap ERP Files';
 
-var _books = {};
-function _ss(book) {
-  if (_books[book]) return _books[book];
+var _ssCache = null;
+function _ss() {
+  if (_ssCache) return _ssCache;
   var props = PropertiesService.getScriptProperties();
-  var key = book === 'access' ? 'ACCESS_SS_ID' : 'DATA_SS_ID';
-  var id = book === 'access' ? (ACCESS_SPREADSHEET_ID || props.getProperty(key)) : props.getProperty(key);
+  var id = props.getProperty('DATA_SS_ID');
   var ss;
   if (id) ss = SpreadsheetApp.openById(id);
-  else if (book === 'access') {
-    ss = SpreadsheetApp.create('Little Nap ERP - Access (logins & settings)');
-    props.setProperty(key, ss.getId());
-  } else {
+  else {
     ss = SpreadsheetApp.getActiveSpreadsheet();
     if (!ss) throw new Error('Open this script from inside the Google Sheet (Extensions > Apps Script) and run setup() there.');
-    props.setProperty(key, ss.getId());
+    props.setProperty('DATA_SS_ID', ss.getId());
   }
-  _books[book] = ss;
+  _ssCache = ss;
   return ss;
 }
 
@@ -42,8 +31,8 @@ var host = {
   now: function () { return new Date().toISOString(); },
   uuid: function () { return Utilities.getUuid(); },
 
-  ensureSheet: function (book, name, headers, textHeaders) {
-    var ss = _ss(book);
+  ensureSheet: function (name, headers, textHeaders, color) {
+    var ss = _ss();
     var sh = ss.getSheetByName(name);
     if (!sh) { sh = ss.insertSheet(name); sh.setFrozenRows(1); }
     var width = Math.max(sh.getLastColumn(), 1);
@@ -55,6 +44,7 @@ var host = {
         existing[col - 1] = h;
       }
     });
+    if (color) sh.setTabColor(color);
     // Text columns stay text (so 0012 or 2026-10-12 are never auto-converted)
     textHeaders.forEach(function (h) {
       var c = existing.indexOf(h) + 1;
@@ -62,10 +52,10 @@ var host = {
     });
   },
 
-  read: function (book, name) {
-    var sh = _ss(book).getSheetByName(name);
+  read: function (name) {
+    var sh = _ss().getSheetByName(name);
     if (!sh || sh.getLastRow() < 1) return [];
-    var tz = _ss(book).getSpreadsheetTimeZone();
+    var tz = _ss().getSpreadsheetTimeZone();
     var vals = sh.getDataRange().getValues();
     var headers = vals[0].map(String);
     var out = [];
@@ -90,14 +80,14 @@ var host = {
     headers.forEach(function (h, j) { if (h && Object.prototype.hasOwnProperty.call(row, h)) cur[j] = row[h]; });
     range.setValues([cur]);
   },
-  append: function (book, name, row) {
-    var sh = _ss(book).getSheetByName(name);
+  append: function (name, row) {
+    var sh = _ss().getSheetByName(name);
     var idx = Math.max(sh.getLastRow(), 1) + 1;
     host._write(sh, idx, row);
     return idx;
   },
-  update: function (book, name, idx, row) { host._write(_ss(book).getSheetByName(name), idx, row); },
-  remove: function (book, name, idx) { _ss(book).getSheetByName(name).deleteRow(idx); },
+  update: function (name, idx, row) { host._write(_ss().getSheetByName(name), idx, row); },
+  remove: function (name, idx) { _ss().getSheetByName(name).deleteRow(idx); },
 
   withLock: function (fn) {
     var lock = LockService.getScriptLock();
@@ -119,6 +109,14 @@ var host = {
     var f = folder.createFile(blob);
     return { id: f.getId(), folderId: root.getId() };
   },
+  // Changes whenever anything in the spreadsheet changes (also when edited by hand) - lets the app check for news cheaply.
+  stamp: function () {
+    var bump = PropertiesService.getScriptProperties().getProperty('STAMP') || '0';
+    var t = 0;
+    try { t = DriveApp.getFileById(_ss().getId()).getLastUpdated().getTime(); } catch (e) { /* ignore */ }
+    return bump + ':' + t;
+  },
+  bumpStamp: function () { PropertiesService.getScriptProperties().setProperty('STAMP', String(Date.now())); },
   readFile: function (id) {
     var f = DriveApp.getFileById(id);
     var blob = f.getBlob();
@@ -138,17 +136,38 @@ function doGet() { return _json({ ok: true, app: 'Little Nap ERP API', hint: 'Us
 /** Run this ONCE from the editor. Safe to run again later (adds missing tabs/columns, never overwrites data). */
 function setup() {
   var msg = Core.setup(host);
-  var access = _ss('access');
-  var data = _ss('data');
-  // Tidy: remove the empty default "Sheet1" tabs
-  [data, access].forEach(function (ss) {
-    var s1 = ss.getSheetByName('Sheet1');
-    if (s1 && ss.getSheets().length > 1 && s1.getLastRow() === 0) ss.deleteSheet(s1);
-  });
-  var out = msg + '\n\nACCESS sheet (logins - share only with the Admin):\n' + access.getUrl() +
-    '\n\nDATA sheet:\n' + data.getUrl() +
-    '\n\nNEXT: open the ACCESS sheet > Users tab > type a password for the "admin" row. Then Deploy > New deployment > Web app.';
+  var ss = _ss();
+  var s1 = ss.getSheetByName('Sheet1'); // tidy: remove the empty default tab
+  if (s1 && ss.getSheets().length > 1 && s1.getLastRow() === 0) ss.deleteSheet(s1);
+  var out = msg + '\n\nYour spreadsheet:\n' + ss.getUrl() +
+    '\n\nNEXT: open the Users tab and type a password for the "admin" row. Then Deploy > New deployment > Web app.' +
+    '\nAlso run installBackup() once to get an automatic monthly backup copy in your Drive.';
   Logger.log(out);
   try { SpreadsheetApp.getUi().alert(out); } catch (e) { /* not run from a Sheet window */ }
   return out;
+}
+
+// ---------------------------------------------------------------- automatic backups
+var BACKUP_KEEP = 12;     // how many monthly copies to keep
+var BACKUP_FOLDER = 'Little Nap ERP Backups';
+
+/** Copies the whole spreadsheet into a Drive folder and deletes copies older than the last BACKUP_KEEP. */
+function backupNow() {
+  var file = DriveApp.getFileById(_ss().getId());
+  var it = DriveApp.getFoldersByName(BACKUP_FOLDER);
+  var folder = it.hasNext() ? it.next() : DriveApp.createFolder(BACKUP_FOLDER);
+  var stamp = Utilities.formatDate(new Date(), 'Asia/Kolkata', 'yyyy-MM-dd');
+  file.makeCopy(file.getName() + ' - backup ' + stamp, folder);
+  var files = [], f = folder.getFiles();
+  while (f.hasNext()) files.push(f.next());
+  files.sort(function (a, b) { return b.getDateCreated() - a.getDateCreated(); });
+  for (var i = BACKUP_KEEP; i < files.length; i++) files[i].setTrashed(true);
+}
+
+/** Run once: makes a backup on the 1st of every month. */
+function installBackup() {
+  ScriptApp.getProjectTriggers().forEach(function (t) { if (t.getHandlerFunction() === 'backupNow') ScriptApp.deleteTrigger(t); });
+  ScriptApp.newTrigger('backupNow').timeBased().onMonthDay(1).atHour(3).create();
+  backupNow();
+  Logger.log('Backup installed: a copy is made on the 1st of every month into the Drive folder "' + BACKUP_FOLDER + '" (last ' + BACKUP_KEEP + ' kept). First copy made now.');
 }
