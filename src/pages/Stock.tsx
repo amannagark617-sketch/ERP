@@ -29,7 +29,7 @@ export default function Stock() {
 
       <Card title="Stock on hand">
         <div className="row" style={{ marginBottom: 8 }}><input placeholder="Search items…" value={q} onChange={e => setQ(e.target.value)} /></div>
-        {items.length === 0 ? <Empty>No items yet. HO adds items under “Items & Prices”.</Empty> : (
+        {items.length === 0 ? <Empty>No items yet. The Admin adds items under “Items & Prices”.</Empty> : (
           <div className="tablewrap"><table>
             <thead><tr><th>Item</th><th>Unit</th><th className="r">On hand</th><th className="r">Min</th><th></th></tr></thead>
             <tbody>{items.map(i => (

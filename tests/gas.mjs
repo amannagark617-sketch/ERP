@@ -71,14 +71,14 @@ const adm = post({ action: 'login', loginId: 'admin', password: 'First-Pass-1' }
 assert.ok(adm.ok, adm.error);
 assert.ok(String(grids.get('Users').rows[1][hdr.indexOf('Password')]).startsWith('sha256:'), 'password hashed in the sheet');
 
-for (const [id, role, level] of [['ho1', 'HO', 4], ['buyer', 'Purchase', 2], ['store', 'Inventory', 1]]) {
+for (const [id, role, level] of [['boss', 'Admin', 5], ['buyer', 'Purchase', 2], ['store', 'Inventory', 1]]) {
   const r = post({ action: 'users.save', token: adm.token, user: { loginId: id, name: id, role, department: role, level, active: true, password: 'pass-' + id } });
   assert.ok(r.ok, r.error);
 }
 const tok = (id) => post({ action: 'login', loginId: id, password: 'pass-' + id }).token;
-const ho = tok('ho1'), buyer = tok('buyer'), store = tok('store');
+const ho = tok('boss'), buyer = tok('buyer'), store = tok('store');
 
-// HO builds master data: one item, two vendors with different prices
+// Admin builds master data: one item, two vendors with different prices
 let r = post({ action: 'commit', token: ho, name: 'master.manage', note: 'master', ops: [
   up('items', { id: 'I1', name: 'Foam sheet', unit: 'sheet', category: '', minStock: 10, active: true }),
   ...['V1', 'V2'].map((id, n) => up('vendors', { id, name: 'Vendor ' + id, contact: '', email: '', whatsapp: '', msme: n === 0, msmeType: 'Small', udyamNo: 'UDYAM-DL-01-000000' + n, gstin: '', pan: '', address: '', city: '', state: '', paymentTermsDays: 30, bankName: '', accountNo: '', ifsc: '', active: true })),
@@ -100,7 +100,7 @@ r = post({ action: 'commit', token: buyer, name: 'po.save', ops: [{ t: 'delete',
 assert.match(r.error || '', /Invalid PO line/);
 r = post({ action: 'commit', token: buyer, name: 'po.save', ops: [{ t: 'delete', table: 'poLines', id: 'p1:I1' }, up('poLines', { id: 'p1:I1', poId: 'p1', itemId: 'I1', qty: 7, price: 1790 })] });
 assert.ok(r.ok, r.error); // changing quantity of a line works
-// stock: adjust-in needs HO; store issues
+// stock: adjust-in needs the Admin; store issues
 assert.equal(post({ action: 'commit', token: store, name: 'stock.adjust', ops: [up('stock', { id: 'a1', date: '2026-10-12', itemId: 'I1', type: 'ADJUST', qty: 50, note: 'Opening stock' })] }).code, 'FORBIDDEN');
 assert.ok(post({ action: 'commit', token: ho, name: 'stock.adjust', note: 'Opening', ops: [up('stock', { id: 'a1', date: '2026-10-12', itemId: 'I1', type: 'ADJUST', qty: 50, note: 'Opening stock' })] }).ok);
 assert.match(post({ action: 'commit', token: store, name: 'stock.issue', ops: [up('stock', { id: 'o1', date: '2026-10-12', itemId: 'I1', type: 'OUT', qty: 80, toDept: 'Production' })] }).error, /Only 50/);

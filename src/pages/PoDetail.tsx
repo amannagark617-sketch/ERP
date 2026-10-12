@@ -90,7 +90,7 @@ export default function PoDetail({ id }: { id: string }) {
             <Link to={`/pos/${po.id}/edit`} className="btn">Edit quantity / terms</Link>
             <button className="btn primary" onClick={() => run(() => actions.submitPO(po.id))}>{po.status === 'Rejected' ? 'Resubmit for approval' : 'Submit for approval'}</button>
           </div>
-          {po.status === 'Rejected' && <p className="mut">Price can't be changed here – ask the backend (HO) to update the vendor price list.</p>}
+          {po.status === 'Rejected' && <p className="mut">Price can't be changed here – ask the Admin to update the vendor price list.</p>}
         </Card>
       )}
       {canApprove && (
@@ -144,7 +144,7 @@ export default function PoDetail({ id }: { id: string }) {
       </Card>
 
       {queries.length > 0 && (
-        <Card title="Price queries to backend (HO)">
+        <Card title="Price queries to the Admin">
           <table><tbody>{queries.map(l => <tr key={l.itemId}><td>{itemName(s, l.itemId)}</td><td>{l.queryNote}</td><td className="mut">{l.queryBy}</td><td><Badge>{l.queryStatus === 'Resolved' ? 'Resolved' : 'Open'}</Badge></td></tr>)}</tbody></table>
         </Card>
       )}

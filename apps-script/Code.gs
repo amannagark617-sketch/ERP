@@ -89,6 +89,13 @@ var host = {
   },
   update: function (name, idx, row) { host._write(_ss().getSheetByName(name), idx, row); },
   remove: function (name, idx) { _ss().getSheetByName(name).deleteRow(idx); },
+  renameHeader: function (name, from, to) {
+    var sh = _ss().getSheetByName(name);
+    if (!sh || sh.getLastColumn() < 1) return;
+    var hdr = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(String);
+    var i = hdr.indexOf(from);
+    if (i >= 0 && hdr.indexOf(to) < 0) sh.getRange(1, i + 1).setValue(to);
+  },
 
   withLock: function (fn) {
     var lock = LockService.getScriptLock();
@@ -178,8 +185,8 @@ function installBackup() {
 /**
  * OPTIONAL. Fills the EMPTY business tabs with realistic sample data so you can see how everything looks and try each role:
  * 6 vendors, 12 items (several sold by 3 vendors at different prices), 10 POs at every stage, receipts, payments,
- * old pending balances, stock in/out, 2 low-stock items. Also adds 6 logins: demo.purchase, demo.factory, demo.ca,
- * demo.ho, demo.accounts, demo.store (password Demo@1234). Does nothing if the sheet already has data.
+ * old pending balances, stock in/out, 2 low-stock items. Also adds 4 logins: demo.purchase, demo.factory,
+ * demo.accounts, demo.store (password Demo@1234); use your own admin login for the Admin parts. Does nothing if the sheet already has data.
  */
 function loadSampleData() {
   var msg = Core.loadSample(host, Utilities.formatDate(new Date(), 'Asia/Kolkata', 'yyyy-MM-dd'));
@@ -290,7 +297,7 @@ var Core = (() => {
       color: ACCESS,
       cols: [c("key", "Setting"), c("value", "Value"), c("description", "Meaning")]
     },
-    // ---------- Master data (HO) ----------
+    // ---------- Master data (Admin) ----------
     vendors: {
       sheet: "Vendors",
       id: "id",
@@ -386,7 +393,7 @@ var Core = (() => {
         c("itemName", "Item"),
         c("qty", "Quantity", "num"),
         c("price", "Price", "num"),
-        c("queryNote", "Price Query to HO"),
+        c("queryNote", "Price Query to Admin"),
         c("queryStatus", "Query Status"),
         c("queryBy", "Query Raised By"),
         c("poId", "PO Key"),
@@ -621,9 +628,8 @@ var Core = (() => {
   function configSeed() {
     return {
       roles: [
-        { role: "Admin", level: 5, approvesAbove: "", ...caps("cPo", "cAdvance", "cReceive", "cIssue", "cAdjust", "cPay", "cMaster", "cUsers") },
-        { role: "CA", level: 4, approvesAbove: "1000000", ...caps() },
-        { role: "HO", level: 4, approvesAbove: "", ...caps("cMaster", "cAdjust") },
+        // Admin does everything: second-level approver for POs above Rs 10 Lac, vendors/items/prices, stock corrections, users
+        { role: "Admin", level: 5, approvesAbove: "1000000", ...caps("cPo", "cAdvance", "cReceive", "cIssue", "cAdjust", "cPay", "cMaster", "cUsers") },
         { role: "Factory Head", level: 3, approvesAbove: "0", ...caps() },
         { role: "Purchase", level: 2, approvesAbove: "", ...caps("cPo") },
         { role: "Accounts", level: 2, approvesAbove: "", ...caps("cAdvance", "cPay") },
@@ -673,8 +679,6 @@ var Core = (() => {
     return [
       u("purchase", "Demo Purchase", "Purchase", "Purchase", 2),
       u("factory", "Demo Factory Head", "Factory Head", "Factory", 3),
-      u("ca", "Demo CA", "CA", "Finance", 4),
-      u("ho", "Demo HO", "HO", "Head Office", 4),
       u("accounts", "Demo Accounts", "Accounts", "Accounts", 2),
       u("store", "Demo Store", "Inventory", "Factory", 1)
     ];
@@ -729,7 +733,7 @@ var Core = (() => {
       ["V6", "I11", 2250]
     ];
     const price = (v, i) => priceSpec.find((p) => p[0] === v && p[1] === i)[2];
-    const P = "Demo Purchase", F = "Demo Factory Head", C = "Demo CA", A = "Demo Accounts", S = "Demo Store", H = "Demo HO";
+    const P = "Demo Purchase", F = "Demo Factory Head", A = "Demo Accounts", S = "Demo Store", H = "Administrator";
     const pos = [
       {
         n: 1,
@@ -804,7 +808,7 @@ var Core = (() => {
         expected: 5,
         sent: -5,
         terms: "",
-        events: [[-7, P, "Draft created and submitted for approval"], [-6, F, "Approved"], [-5, P, "Sent to vendor via Email"], [-1, S, "Price query raised to HO: Vendor invoice shows Rs 99 per carton, PO says Rs 95"]]
+        events: [[-7, P, "Draft created and submitted for approval"], [-6, F, "Approved"], [-5, P, "Sent to vendor via Email"], [-1, S, "Price query raised to Admin: Vendor invoice shows Rs 99 per carton, PO says Rs 95"]]
       },
       {
         n: 6,
@@ -825,14 +829,14 @@ var Core = (() => {
         vendor: "V5",
         date: -4,
         lines: [["I4", 1500], ["I9", 800]],
-        status: "Pending CA",
-        route: ["Factory Head", "CA"],
+        status: "Pending Admin",
+        route: ["Factory Head", "Admin"],
         step: 1,
         advance: 2e5,
         advStatus: "Not Required",
         expected: 20,
         terms: "20% advance, balance 30 days.",
-        events: [[-4, P, "Draft created and submitted for approval"], [-3, F, "Approved \u2013 OK to proceed, needs CA since above Rs 10 Lac"]]
+        events: [[-4, P, "Draft created and submitted for approval"], [-3, F, "Approved \u2013 OK to proceed, needs the Admin since above Rs 10 Lac"]]
       },
       {
         n: 8,
@@ -1442,7 +1446,7 @@ var Core = (() => {
         if (l.id !== `${l.poId}:${l.itemId}`) bad("Invalid PO line");
         const cur = db.find("poLines", l.id);
         if (cur) {
-          if (cur.price !== l.price || cur.itemId !== l.itemId) bad("PO price cannot be changed. Ask HO to update the vendor price.");
+          if (cur.price !== l.price || cur.itemId !== l.itemId) bad("PO price cannot be changed. Ask the Admin to update the vendor price.");
           continue;
         }
         const po = v.get("pos", l.poId);
@@ -1530,7 +1534,7 @@ var Core = (() => {
     if (action === "master.manage") {
       for (const l of v.ups("poLines")) {
         const cur = db.find("poLines", l.id);
-        if (!cur || !same(cur, l, ["qty", "price", "itemId", "poId", "queryNote", "queryBy"]) || l.queryStatus !== "Resolved") bad("HO can only resolve price queries here");
+        if (!cur || !same(cur, l, ["qty", "price", "itemId", "poId", "queryNote", "queryBy"]) || l.queryStatus !== "Resolved") bad("Only the price query can be closed here");
       }
       for (const p of v.ups("prices")) {
         if (!db.find("vendors", p.vendorId) && !v.get("vendors", p.vendorId)) bad("Unknown vendor in price list", "ERROR");
@@ -1786,8 +1790,32 @@ var Core = (() => {
     CompanyWebsite: ["", "www.lnsindia.co.in"],
     DeliverTo: ["", "Little Nap Subhav Manufacturing Plant, Shree Shubham Logistics Park, 27-28, AB Road Bypass, Dewas, Madhya Pradesh 455001"]
   };
+  var RENAMED_HEADERS = [["POLines", "Price Query to HO", "Price Query to Admin"]];
+  function mergeCaHoIntoAdmin(host) {
+    const db = new Db(host);
+    const old = db.rows("roles").filter((r) => /^(ca|ho)$/i.test(String(r.role).trim()));
+    if (!old.length) return;
+    const now = host.now();
+    const ca = old.find((r) => /^ca$/i.test(String(r.role).trim()));
+    const admin = db.rows("roles").find((r) => lc(r.role) === "admin");
+    if (admin && String(admin.approvesAbove).trim() === "") {
+      const limit = ca && String(ca.approvesAbove).trim() !== "" ? ca.approvesAbove : "1000000";
+      db.touch("roles", { ...admin, approvesAbove: limit });
+    }
+    const users = db.rows("users");
+    const gone = users.filter((u) => /^(ca|ho)$/i.test(String(u.role).trim()) && lc(u.loginId).indexOf("demo.") === 0);
+    users.filter((u) => /^(ca|ho)$/i.test(String(u.role).trim()) && gone.indexOf(u) < 0).forEach((u) => db.touch("users", { ...u, role: "Admin", level: 5 }));
+    for (const p of db.rows("pos")) {
+      const route = String(p.route).split(",").map((x) => lc(x) === "ca" ? "Admin" : x).join(",");
+      const status = lc(p.status) === "pending ca" ? "Pending Admin" : p.status;
+      if (route !== p.route || status !== p.status) db.touch("pos", { ...p, route, status, _v: (p._v || 0) + 1, _at: now, _by: "migration" });
+    }
+    gone.sort((a, b) => b.__row - a.__row).forEach((u) => host.remove(def("users").sheet, u.__row));
+    old.sort((a, b) => b.__row - a.__row).forEach((r) => host.remove(def("roles").sheet, r.__row));
+  }
   function setup(host, extra) {
     const keys = Object.keys(TABLES);
+    for (const [sheet, from, to] of RENAMED_HEADERS) host.renameHeader(sheet, from, to);
     for (const k of keys) {
       const d = def(k);
       const cols = allCols(d);
@@ -1805,6 +1833,7 @@ var Core = (() => {
     for (const s of configSeed().settings) if (!db.find("settings", s.key)) db.put("settings", s);
     const stale = db.rows("settings").filter((r) => OLD_LETTERHEAD_ROWS[r.key] && OLD_LETTERHEAD_ROWS[r.key].indexOf(r.value) >= 0);
     stale.sort((a, b) => b.__row - a.__row).forEach((r) => host.remove(def("settings").sheet, r.__row));
+    mergeCaHoIntoAdmin(host);
     return "Setup complete.";
   }
   function loadSample(host, today) {
@@ -1814,7 +1843,7 @@ var Core = (() => {
     for (const k of Object.keys(data)) for (const r of data[k]) db.put(k, r);
     for (const u of sampleUsers()) if (!db.rows("users").some((x) => lc(x.loginId) === lc(u.loginId))) db.put("users", u);
     host.bumpStamp();
-    return "Sample data loaded: 6 vendors, 12 items, 18 vendor prices, 10 POs, receipts, payments, stock movements. Log in with demo.purchase / demo.factory / demo.ca / demo.ho / demo.accounts / demo.store (password Demo@1234). Remove everything with clearAllDataBeforeGoingLive() before real use.";
+    return "Sample data loaded: 7 vendors, 12 items, 18 vendor prices, 10 POs, receipts, payments, stock movements. Log in with demo.purchase / demo.factory / demo.accounts / demo.store (password Demo@1234), and use your own admin login for the Admin parts. Remove everything with clearAllDataBeforeGoingLive() before real use.";
   }
   function clearAllData(host) {
     let n = 0;

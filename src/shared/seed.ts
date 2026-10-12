@@ -8,9 +8,8 @@ const caps = (...on: string[]) => Object.fromEntries(['cPo', 'cAdvance', 'cRecei
 export function configSeed(): Rows {
   return {
     roles: [
-      { role: 'Admin', level: 5, approvesAbove: '', ...caps('cPo', 'cAdvance', 'cReceive', 'cIssue', 'cAdjust', 'cPay', 'cMaster', 'cUsers') },
-      { role: 'CA', level: 4, approvesAbove: '1000000', ...caps() },
-      { role: 'HO', level: 4, approvesAbove: '', ...caps('cMaster', 'cAdjust') },
+      // Admin does everything: second-level approver for POs above Rs 10 Lac, vendors/items/prices, stock corrections, users
+      { role: 'Admin', level: 5, approvesAbove: '1000000', ...caps('cPo', 'cAdvance', 'cReceive', 'cIssue', 'cAdjust', 'cPay', 'cMaster', 'cUsers') },
       { role: 'Factory Head', level: 3, approvesAbove: '0', ...caps() },
       { role: 'Purchase', level: 2, approvesAbove: '', ...caps('cPo') },
       { role: 'Accounts', level: 2, approvesAbove: '', ...caps('cAdvance', 'cPay') },

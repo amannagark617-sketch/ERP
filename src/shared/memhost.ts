@@ -24,6 +24,13 @@ export function createMemHost(persist?: Persist, now: () => string = () => new D
     append(name, row) { const s = sheet(name); s.rows.push({ ...row }); save(); return s.rows.length + 1; },
     update(name, idx, row) { const s = sheet(name); s.rows[idx - 2] = { ...s.rows[idx - 2], ...row }; save(); },
     remove(name, idx) { sheet(name).rows.splice(idx - 2, 1); save(); },
+    renameHeader(name, from, to) {
+      const s = db.sheets[name];
+      if (!s || !s.headers.includes(from) || s.headers.includes(to)) return;
+      s.headers = s.headers.map(h => (h === from ? to : h));
+      s.rows.forEach(r => { if (from in r) { r[to] = r[from]; delete r[from]; } });
+      save();
+    },
     withLock: fn => fn(),
     cacheGet(k) { const c = cache.get(k); if (!c || c.exp < Date.now()) { cache.delete(k); return null; } return c.v; },
     cachePut(k, v, ttl) { cache.set(k, { v, exp: Date.now() + ttl * 1000 }); },

@@ -332,18 +332,18 @@ export const actions = {
   }),
 
   // ---- price queries (on PO lines)
-  raiseQuery: (poId: string, itemId: string, noteText: string) => mutate('query.raise', 'Price query raised to HO: ' + noteText, s => {
+  raiseQuery: (poId: string, itemId: string, noteText: string) => mutate('query.raise', 'Price query raised to Admin: ' + noteText, s => {
     const line = findPO(s, poId).lines.find(l => l.itemId === itemId);
     if (!line) throw new Error('Item is not on this PO');
     line.queryNote = noteText;
     line.queryStatus = 'Open';
   }),
-  resolveQuery: (poId: string, itemId: string) => mutate('master.manage', 'Price query resolved by HO', s => {
+  resolveQuery: (poId: string, itemId: string) => mutate('master.manage', 'Price query resolved by Admin', s => {
     const line = findPO(s, poId).lines.find(l => l.itemId === itemId);
     if (line) line.queryStatus = 'Resolved';
   }),
 
-  // ---- Backend / HO master data
+  // ---- Master data (Admin)
   saveItem: (it: Partial<Item> & { name: string }) => mutate('master.manage', '', s => {
     if (!it.name.trim()) throw new Error('Enter the item name');
     if (s.items.some(x => x.id !== it.id && x.name.trim().toLowerCase() === it.name.trim().toLowerCase())) throw new Error('An item with this name already exists');

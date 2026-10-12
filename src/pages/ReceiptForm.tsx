@@ -49,7 +49,7 @@ export default function ReceiptForm({ poId }: { poId: string }) {
   };
   const refer = async (itemId: string) => {
     if (!queryNote.trim()) { alert('Describe the price difference first'); return; }
-    if (await run(() => actions.raiseQuery(po.id, itemId, queryNote.trim()))) alert('Referred to the backend (HO).');
+    if (await run(() => actions.raiseQuery(po.id, itemId, queryNote.trim()))) alert('Referred to the Admin.');
   };
 
   return (
@@ -84,7 +84,7 @@ export default function ReceiptForm({ poId }: { poId: string }) {
         </table></div>
         {mismatch && (
           <div className="note" style={{ marginTop: 12 }}>
-            Price can't be changed here. If the invoice price differs, refer it to the backend (HO):
+            Price can't be changed here. If the invoice price differs, refer it to the Admin:
             <div className="row" style={{ marginTop: 6 }}>
               <input placeholder="e.g. Invoice shows 2,500 vs PO 2,400" value={queryNote} onChange={e => setQueryNote(e.target.value)} style={{ flex: 1, minWidth: 220 }} />
               {rows.filter(r => r.selected).map(r => <button key={r.itemId} className="btn sm" onClick={() => refer(r.itemId)}>Refer {itemName(s, r.itemId)}</button>)}
@@ -102,7 +102,7 @@ export default function ReceiptForm({ poId }: { poId: string }) {
         </tbody></table>
         {invoiceTotal > 0 && (matches
           ? <p className="ok">✓ Matches the invoice total.</p>
-          : <p className="bad">Does not match the invoice by {inr(Math.abs(diff))}. Fix quantity / tax, edit the PO quantity if the invoice differs, or refer a price difference to HO.</p>)}
+          : <p className="bad">Does not match the invoice by {inr(Math.abs(diff))}. Fix quantity / tax, edit the PO quantity if the invoice differs, or refer a price difference to the Admin.</p>)}
         <button className="btn primary" disabled={!picked.length || saving} onClick={submit}>{saving ? 'Saving…' : 'Save goods receipt'}</button>
       </Card>
     </>

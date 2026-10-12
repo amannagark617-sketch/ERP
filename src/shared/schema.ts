@@ -45,7 +45,7 @@ export const TABLES = {
     sheet: 'Settings', id: 'key', kind: 'config', color: ACCESS,
     cols: [c('key', 'Setting'), c('value', 'Value'), c('description', 'Meaning')],
   },
-  // ---------- Master data (HO) ----------
+  // ---------- Master data (Admin) ----------
   vendors: {
     sheet: 'Vendors', id: 'id', kind: 'data', color: MASTER, autoId: 'V',
     cols: [
@@ -85,7 +85,7 @@ export const TABLES = {
     sheet: 'POLines', id: 'id', kind: 'data', color: APP, deriveId: (r: any) => (r.poId && r.itemId ? `${r.poId}:${r.itemId}` : ''),
     cols: [
       c('poNo', 'PO No'), c('itemName', 'Item'), c('qty', 'Quantity', 'num'), c('price', 'Price', 'num'),
-      c('queryNote', 'Price Query to HO'), c('queryStatus', 'Query Status'), c('queryBy', 'Query Raised By'),
+      c('queryNote', 'Price Query to Admin'), c('queryStatus', 'Query Status'), c('queryBy', 'Query Raised By'),
       c('poId', 'PO Key'), c('itemId', 'Item ID'), c('id', 'Key (auto)'),
     ],
   },

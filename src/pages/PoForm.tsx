@@ -33,7 +33,7 @@ export default function PoForm({ id }: { id?: string }) {
   return (
     <>
       <h2>{existing ? `Edit ${existing.poNo}` : 'New Purchase Order'}</h2>
-      {existing?.status === 'Rejected' && <div className="warn">Not approved. You can edit the quantity and resubmit. If the price needs to change, take it up with the backend (HO).</div>}
+      {existing?.status === 'Rejected' && <div className="warn">Not approved. You can edit the quantity and resubmit. If the price needs to change, take it up with the Admin.</div>}
       <Card title="Vendor & delivery">
         <div className="form2">
           <Field label="Vendor">
@@ -46,7 +46,7 @@ export default function PoForm({ id }: { id?: string }) {
         </div>
         {vendor && <p className="mut">Contact: {vendor.contact} · {vendor.email} · WhatsApp {vendor.whatsapp} · Terms {vendor.paymentTermsDays} days{vendor.msme ? ` · MSME ${vendor.msmeType} (${vendor.udyamNo || 'Udyam no. missing'})` : ''}</p>}
       </Card>
-      <Card title="Items (price is fixed by the backend and cannot be edited)">
+      <Card title="Items (price comes from the vendor's price list and cannot be edited)">
         {!vendor ? <p className="empty">Select a vendor to see its items and prices.</p> : (
           <div className="tablewrap"><table>
             <thead><tr><th>Item</th><th className="r">Price</th><th>Cheaper elsewhere?</th><th className="r">Quantity</th><th className="r">Amount</th></tr></thead>

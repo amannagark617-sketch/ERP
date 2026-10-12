@@ -24,7 +24,7 @@ M.setup(host, M.fixture(TODAY));
 const call = (req) => M.handle(host, req);
 const login = (id, pw = id + '123') => call({ action: 'login', loginId: id, password: pw });
 const tokenOf = (id) => { const r = login(id); assert.ok(r.ok, r.error); return r.token; };
-const T = Object.fromEntries(['admin', 'navneet', 'factoryhead', 'mohit', 'ho', 'accounts', 'inventory'].map(u => [u, tokenOf(u)]));
+const T = Object.fromEntries(['admin', 'navneet', 'factoryhead', 'accounts', 'inventory'].map(u => [u, tokenOf(u)]));
 const boot = (u, all = false) => call({ action: 'bootstrap', token: T[u], all });
 const commit = (u, name, ops, note = '') => call({ action: 'commit', token: T[u], name, ops, note });
 const up = (table, row) => ({ t: 'upsert', table, row });
@@ -35,7 +35,7 @@ await test('12 tabs, logins and data in the same file', () => {
   const tabs = Object.values(M.TABLES).map(t => t.sheet);
   assert.equal(tabs.length, 12);
   assert.deepEqual(tabs.slice(0, 3), ['Users', 'Roles', 'Settings']);
-  assert.equal(host.read('Users').length, 7); assert.ok(host.read('Vendors').length >= 4);
+  assert.equal(host.read('Users').length, 5); assert.ok(host.read('Vendors').length >= 4);
 });
 
 console.log('auth');
@@ -59,11 +59,13 @@ await test('bootstrap never leaks users/passwords; permissions come from the Rol
   const b = boot('navneet');
   assert.ok(b.ok); assert.equal(b.data.users, undefined); assert.ok(!JSON.stringify(b).includes('sha256:'));
   assert.ok(b.user.permissions.includes('po.save')); assert.ok(!b.user.permissions.includes('po.approve'));
-  assert.ok(boot('factoryhead').user.permissions.includes('po.approve') && boot('mohit').user.permissions.includes('po.approve'));
+  assert.ok(boot('factoryhead').user.permissions.includes('po.approve') && boot('admin').user.permissions.includes('po.approve'), 'Factory Head and Admin are the approvers');
+  assert.ok(!boot('navneet').user.permissions.includes('po.approve') && !boot('accounts').user.permissions.includes('po.approve') && !boot('inventory').user.permissions.includes('po.approve'));
   const inv = boot('inventory').user.permissions;
   assert.ok(inv.includes('receipt.create') && inv.includes('stock.issue') && !inv.includes('stock.adjust'));
   assert.ok(boot('admin').user.permissions.includes('users.manage'));
-  assert.ok(!boot('admin').user.permissions.includes('po.approve'), 'admin is not an approver unless the role has an approval level');
+  const adm = boot('admin').user.permissions;
+  for (const p of ['po.save', 'advance.pay', 'receipt.create', 'stock.issue', 'stock.adjust', 'payment.make', 'master.manage', 'users.manage']) assert.ok(adm.includes(p), 'Admin can ' + p);
 });
 
 console.log('PO workflow');
@@ -92,18 +94,18 @@ await test('cannot skip approval by submitting as Approved or with a short route
   assert.match(commit('navneet', 'po.submit', [up('pos', { ...base, status: 'Approved', route: '', step: 0 })]).error, /route/);
   assert.match(commit('navneet', 'po.submit', [up('pos', { ...base, status: 'Pending Factory Head', route: 'Factory Head', step: 0 })]).error, /route/);
 });
-await test('submit, FH approves, CA approves, Purchase sends; history recorded', () => {
+await test('submit, Factory Head approves, Admin approves, Purchase sends; history recorded', () => {
   let v = boot('navneet').data.pos.find(p => p.id === 'p1')._v;
   const base = { id: 'p1', vendorId: 'V2', terms: 't', advanceRequired: false, advanceAmount: 0, expectedDate: '2026-11-01', advanceStatus: 'Not Required', date: TODAY };
-  const R = 'Factory Head,CA';
+  const R = 'Factory Head,Admin';
   let r = commit('navneet', 'po.submit', [up('pos', { ...base, status: 'Pending Factory Head', route: R, step: 0, _v: v })], 'Submitted for approval');
   assert.ok(r.ok, r.error); v = r.applied[0].row._v;
-  assert.equal(commit('mohit', 'po.approve', [up('pos', { ...base, status: 'Approved', route: R, step: 2, _v: v })]).code, 'FORBIDDEN');
+  assert.equal(commit('admin', 'po.approve', [up('pos', { ...base, status: 'Approved', route: R, step: 2, _v: v })]).code, 'FORBIDDEN');
   assert.equal(commit('navneet', 'po.approve', [up('pos', { ...base, status: 'Approved', route: R, step: 2, _v: v })]).code, 'FORBIDDEN');
   assert.match(commit('factoryhead', 'po.approve', [up('pos', { ...base, status: 'Approved', route: R, step: 2, _v: v })]).error, /Invalid approval step/);
-  r = commit('factoryhead', 'po.approve', [up('pos', { ...base, status: 'Pending CA', route: R, step: 1, _v: v })], 'Approved – looks fine');
+  r = commit('factoryhead', 'po.approve', [up('pos', { ...base, status: 'Pending Admin', route: R, step: 1, _v: v })], 'Approved – looks fine');
   assert.ok(r.ok, r.error); v = r.applied[0].row._v;
-  r = commit('mohit', 'po.approve', [up('pos', { ...base, status: 'Approved', route: R, step: 2, _v: v })], 'Approved');
+  r = commit('admin', 'po.approve', [up('pos', { ...base, status: 'Approved', route: R, step: 2, _v: v })], 'Approved');
   assert.ok(r.ok, r.error); v = r.applied[0].row._v;
   assert.equal(commit('accounts', 'po.send', [up('pos', { ...base, status: 'Sent to Vendor', route: R, step: 2, sentVia: 'Email', sentTo: 'x', _v: v })]).code, 'FORBIDDEN');
   r = commit('navneet', 'po.send', [up('pos', { ...base, status: 'Sent to Vendor', route: R, step: 2, sentVia: 'Email', sentTo: 'x', _v: v })], 'Sent to vendor via Email');
@@ -178,35 +180,35 @@ await test('issue stock: needs permission, a destination and enough on hand', ()
 });
 await test('adjustments need the Adjust Stock capability and a reason', () => {
   assert.equal(commit('inventory', 'stock.adjust', stk({ type: 'ADJUST', qty: -2, note: 'damaged' })).code, 'FORBIDDEN');
-  assert.match(commit('ho', 'stock.adjust', stk({ type: 'ADJUST', qty: -2, note: '' })).error, /reason/);
-  assert.ok(commit('ho', 'stock.adjust', stk({ type: 'ADJUST', qty: -2, note: 'damaged in handling' })).ok);
+  assert.match(commit('admin', 'stock.adjust', stk({ type: 'ADJUST', qty: -2, note: '' })).error, /reason/);
+  assert.ok(commit('admin', 'stock.adjust', stk({ type: 'ADJUST', qty: -2, note: 'damaged in handling' })).ok);
 });
 
 console.log('price queries');
-await test('Inventory raises a query on a PO line, HO resolves it, nobody can change the PO through it', () => {
+await test('Inventory raises a query on a PO line, Admin resolves it, nobody can change the PO through it', () => {
   const l = boot('inventory').data.poLines.find(x => x.id === 'po1:I1');
   assert.match(commit('inventory', 'query.raise', [up('poLines', { ...l, queryNote: '', queryStatus: 'Open' })]).error, /Invalid price query/);
   assert.match(commit('inventory', 'query.raise', [up('poLines', { ...l, qty: 1, queryNote: 'x', queryStatus: 'Open' })]).error, /Invalid price query/);
   assert.ok(commit('inventory', 'query.raise', [up('poLines', { ...l, queryNote: 'Invoice shows 2500', queryStatus: 'Open' })]).ok);
-  const l2 = boot('ho').data.poLines.find(x => x.id === 'po1:I1');
+  const l2 = boot('admin').data.poLines.find(x => x.id === 'po1:I1');
   assert.equal(l2.queryBy, 'Inventory (Factory)');
   assert.equal(commit('navneet', 'master.manage', [up('poLines', { ...l2, queryStatus: 'Resolved' })]).code, 'FORBIDDEN');
-  assert.match(commit('ho', 'master.manage', [up('poLines', { ...l2, queryStatus: 'Resolved', price: 1 })]).error, /resolve/);
-  assert.ok(commit('ho', 'master.manage', [up('poLines', { ...l2, queryStatus: 'Resolved' })]).ok);
+  assert.match(commit('admin', 'master.manage', [up('poLines', { ...l2, queryStatus: 'Resolved', price: 1 })]).error, /price query/);
+  assert.ok(commit('admin', 'master.manage', [up('poLines', { ...l2, queryStatus: 'Resolved' })]).ok);
 });
 
 console.log('master data: several vendors, one item');
 await test('same item from several vendors at different prices; add and remove prices', () => {
-  const prices = () => boot('ho').data.prices.filter(p => p.itemId === 'I3').map(p => [p.vendorId, p.price]).sort();
+  const prices = () => boot('admin').data.prices.filter(p => p.itemId === 'I3').map(p => [p.vendorId, p.price]).sort();
   assert.deepEqual(prices(), [['V2', 1850], ['V4', 1790]]);
-  assert.ok(commit('ho', 'master.manage', [up('prices', { id: 'V1:I3', vendorId: 'V1', itemId: 'I3', price: 1700 })]).ok);
+  assert.ok(commit('admin', 'master.manage', [up('prices', { id: 'V1:I3', vendorId: 'V1', itemId: 'I3', price: 1700 })]).ok);
   assert.equal(prices().length, 3);
   assert.equal(sheetRow('Prices', r => r['Key (auto)'] === 'V1:I3')['Vendor Name'], 'Sharma Mechanisms');
-  assert.match(commit('ho', 'master.manage', [up('prices', { id: 'V9:I3', vendorId: 'V9', itemId: 'I3', price: 1 })]).error, /Unknown vendor/);
+  assert.match(commit('admin', 'master.manage', [up('prices', { id: 'V9:I3', vendorId: 'V9', itemId: 'I3', price: 1 })]).error, /Unknown vendor/);
   assert.equal(commit('navneet', 'master.manage', [up('prices', { id: 'V1:I3', vendorId: 'V1', itemId: 'I3', price: 1 })]).code, 'FORBIDDEN');
-  assert.ok(commit('ho', 'master.manage', [{ t: 'delete', table: 'prices', id: 'V1:I3' }]).ok);
+  assert.ok(commit('admin', 'master.manage', [{ t: 'delete', table: 'prices', id: 'V1:I3' }]).ok);
   assert.equal(prices().length, 2);
-  assert.equal(commit('ho', 'master.manage', [{ t: 'delete', table: 'vendors', id: 'V1' }]).code, 'FORBIDDEN');
+  assert.equal(commit('admin', 'master.manage', [{ t: 'delete', table: 'vendors', id: 'V1' }]).code, 'FORBIDDEN');
 });
 await test('new PO price follows the vendor-specific price list', () => {
   const ops = [up('pos', { id: 'pv4', vendorId: 'V4', terms: '', advanceRequired: false, advanceAmount: 0, expectedDate: '2026-12-01', status: 'Draft', advanceStatus: 'Not Required', route: '', step: 0, date: TODAY }),
@@ -215,10 +217,10 @@ await test('new PO price follows the vendor-specific price list', () => {
   ops[1].row.price = 1790;
   assert.ok(commit('navneet', 'po.save', ops).ok);
 });
-await test('formula injection neutralised; HO edits Udyam details', () => {
-  const v = boot('ho').data.vendors.find(x => x.id === 'V1');
+await test('formula injection neutralised; Admin edits Udyam details', () => {
+  const v = boot('admin').data.vendors.find(x => x.id === 'V1');
   assert.equal(v.udyamNo, 'UDYAM-DL-01-0000001');
-  assert.ok(commit('ho', 'master.manage', [up('vendors', { ...v, contact: '=HYPERLINK("http://evil")', udyamNo: 'UDYAM-DL-09-9999999' })]).ok);
+  assert.ok(commit('admin', 'master.manage', [up('vendors', { ...v, contact: '=HYPERLINK("http://evil")', udyamNo: 'UDYAM-DL-09-9999999' })]).ok);
   const row = sheetRow('Vendors', r => r['Vendor ID'] === 'V1');
   assert.ok(row['Contact Person'].startsWith(' =') && row['Udyam Registration No'] === 'UDYAM-DL-09-9999999');
 });
@@ -227,24 +229,24 @@ console.log('editing the Sheet by hand');
 await test('vendor / item rows typed by hand get IDs and default to Active', () => {
   host.append('Vendors', { 'Vendor Name': 'Hand Typed Co', 'MSME (Yes/No)': 'Yes', 'Udyam Registration No': 'UDYAM-XX-00-0000000' });
   host.append('Items', { 'Item Name': 'Zip', Unit: 'pcs' });
-  const b = boot('ho');
+  const b = boot('admin');
   const v = b.data.vendors.find(x => x.name === 'Hand Typed Co'); const i = b.data.items.find(x => x.name === 'Zip');
   assert.ok(/^V\d+$/.test(v.id) && v.active && v.msme); assert.ok(/^I\d+$/.test(i.id) && i.active);
 });
 await test('price typed by names only is resolved to IDs', () => {
   host.append('Prices', { 'Vendor Name': 'bharat foam', 'Item Name': 'LEATHERETTE FABRIC', 'Agreed Price (Rs)': 400 });
-  const p = boot('ho').data.prices.find(x => x.vendorId === 'V4' && x.itemId === 'I4');
+  const p = boot('admin').data.prices.find(x => x.vendorId === 'V4' && x.itemId === 'I4');
   assert.ok(p && p.price === 400 && p.id === 'V4:I4');
   assert.equal(sheetRow('Prices', r => r['Key (auto)'] === 'V4:I4')['Vendor Name'], 'Bharat Foam');
 });
 await test('Roles tab edits change permissions and the approval chain immediately', () => {
-  const ca = sheetRow('Roles', x => x.Role === 'CA');
+  const ca = sheetRow('Roles', x => x.Role === 'Admin');
   const key = 'Approves POs above Rs (blank = not an approver)';
   host.update('Roles', ca.__row, { [key]: 5000000 });
-  assert.deepEqual(boot('navneet').config.approvers.map(a => [a.role, a.above]), [['Factory Head', 0], ['CA', 5000000]]);
+  assert.deepEqual(boot('navneet').config.approvers.map(a => [a.role, a.above]), [['Factory Head', 0], ['Admin', 5000000]]);
   const base = { id: 'p5', vendorId: 'V2', terms: '', advanceRequired: false, advanceAmount: 0, expectedDate: '2026-11-01', advanceStatus: 'Not Required', date: TODAY };
   const lines = [up('poLines', { id: 'p5:I3', poId: 'p5', itemId: 'I3', qty: 600, price: 1850 })]; // 1.11M: now only Factory Head
-  assert.match(commit('navneet', 'po.save', [up('pos', { ...base, status: 'Pending Factory Head', route: 'Factory Head,CA', step: 0 }), ...lines]).error, /route/);
+  assert.match(commit('navneet', 'po.save', [up('pos', { ...base, status: 'Pending Factory Head', route: 'Factory Head,Admin', step: 0 }), ...lines]).error, /route/);
   assert.ok(commit('navneet', 'po.save', [up('pos', { ...base, status: 'Pending Factory Head', route: 'Factory Head', step: 0 }), ...lines]).ok);
   host.update('Roles', ca.__row, { [key]: 1000000 });
   const pur = sheetRow('Roles', x => x.Role === 'Purchase');
@@ -301,7 +303,7 @@ await test('a fresh setup has no business data and no usable password', () => {
   const h2 = M.createMemHost();
   M.setup(h2);
   for (const tab of ['Vendors', 'Items', 'Prices', 'PurchaseOrders', 'POLines', 'Receipts', 'Payments', 'Stock']) assert.equal(h2.read(tab).length, 0, tab);
-  assert.equal(h2.read('Users').length, 1); assert.equal(h2.read('Roles').length, 7);
+  assert.equal(h2.read('Users').length, 1); assert.equal(h2.read('Roles').length, 5);
   assert.match(M.handle(h2, { action: 'login', loginId: 'admin', password: 'anything' }).error, /No password has been set/);
   h2.update('Users', h2.read('Users')[0].__row, { Password: 'My-Secret-1' });
   const ok = M.handle(h2, { action: 'login', loginId: 'admin', password: 'My-Secret-1' });
@@ -341,7 +343,7 @@ await test('sample data loads into an empty system, is consistent, and works wit
   // the sample can be worked through by the real rules
   const po9 = b.data.pos.find(p => p.id === 'po9'), po7 = b.data.pos.find(p => p.id === 'po7');
   assert.ok(C(tk('demo.factory'), 'po.approve', [up('pos', { ...po9, status: 'Approved', step: 1, advanceStatus: 'Not Required' })], 'Approved').ok);
-  assert.ok(C(tk('demo.ca'), 'po.approve', [up('pos', { ...po7, status: 'Approved', step: 2, advanceStatus: 'Requested' })], 'Approved').ok);
+  assert.ok(C(M.handle(h, { action: 'login', loginId: 'admin', password: 'Admin-Pass-1' }).token, 'po.approve', [up('pos', { ...po7, status: 'Approved', step: 2, advanceStatus: 'Requested' })], 'Approved').ok);
   const r4 = b.data.receipts.find(r => r.id === 'r4');
   assert.ok(C(tk('demo.accounts'), 'invoice.accept', [up('receipts', { ...r4, accepted: true, acceptedDate: TODAY })]).ok);
   assert.ok(C(tk('demo.accounts'), 'payment.make', [up('payments', { id: 'px', kind: 'invoice', poId: 'po4', receiptId: 'r4', amount: r4.payable, date: TODAY, screenshot: '' })]).ok);
@@ -350,9 +352,52 @@ await test('sample data loads into an empty system, is consistent, and works wit
   const n = M.clearAllData(h);
   assert.ok(n > 100);
   for (const tab of ['Vendors', 'Items', 'Prices', 'PurchaseOrders', 'POLines', 'Receipts', 'Payments', 'Stock', 'Log']) assert.equal(h.read(tab).length, 0, tab);
-  assert.deepEqual(h.read('Users').map(u => u['Login ID']), ['admin']); assert.equal(h.read('Roles').length, 7); assert.ok(h.read('Settings').length >= 5);
+  assert.deepEqual(h.read('Users').map(u => u['Login ID']), ['admin']); assert.equal(h.read('Roles').length, 5); assert.ok(h.read('Settings').length >= 5);
   assert.ok(M.handle(h, { action: 'login', loginId: 'admin', password: 'Admin-Pass-1' }).ok, 'admin still works');
   assert.match(M.loadSample(h, TODAY), /Sample data loaded/, 'and it can be loaded again');
+});
+
+console.log('five roles: CA and HO merged into Admin');
+await test('a fresh sheet has exactly five roles; Admin is the second-level approver above Rs 10 Lac', () => {
+  const h = M.createMemHost();
+  M.setup(h);
+  assert.deepEqual(h.read('Roles').map(r => r.Role), ['Admin', 'Factory Head', 'Purchase', 'Accounts', 'Inventory']);
+  const admin = h.read('Roles').find(r => r.Role === 'Admin');
+  assert.equal(admin['Approves POs above Rs (blank = not an approver)'], '1000000');
+  assert.ok(!JSON.stringify(h.read('Roles')).match(/"CA"|"HO"/));
+});
+await test('an existing sheet that still has CA / HO is migrated once: users, roles, pending POs and routes become Admin; demo.ca / demo.ho are removed', () => {
+  // build the previous release's sheet by hand (old tabs, old column title), then run the new setup() on it
+  const h = M.createMemHost();
+  const tab = (k) => { const d = M.TABLES[k]; h.ensureSheet(d.sheet, M.allCols(d).map(c => c.header), [], ''); };
+  ['roles', 'users', 'pos'].forEach(tab);
+  h.ensureSheet('POLines', ['PO Key', 'Item ID', 'Price Query to HO'], [], '');
+  const rk = 'Approves POs above Rs (blank = not an approver)';
+  const no = { 'Create & Send POs': 'No', 'Pay Advances': 'No', 'Receive Goods (Stock In)': 'No', 'Issue Stock (Stock Out)': 'No', 'Adjust Stock': 'No', 'Accept Invoices & Pay': 'No', 'Manage Vendors, Items & Prices': 'No', 'Manage Users': 'No' };
+  const role = (name, level, above, extra = {}) => h.append('Roles', { Role: name, Level: level, [rk]: above, ...no, ...extra });
+  role('Admin', 5, '', Object.fromEntries(Object.keys(no).map(k => [k, 'Yes']))); role('CA', 4, '2500000'); role('HO', 4, '', { 'Manage Vendors, Items & Prices': 'Yes' });
+  role('Factory Head', 3, '0'); role('Purchase', 2, '', { 'Create & Send POs': 'Yes' });
+  const user = (id, r, lvl) => h.append('Users', { 'Login ID': id, Password: 'x', 'Full Name': id, Role: r, Level: lvl, 'Active (Yes/No)': 'Yes' });
+  user('admin', 'Admin', 5); user('mohit', 'CA', 4); user('hoteam', 'HO', 4); user('demo.ca', 'CA', 4); user('demo.ho', 'HO', 4); user('navneet', 'Purchase', 2);
+  const po = (id, status, route) => h.append('PurchaseOrders', { 'PO Key': id, 'PO No': id, Status: status, 'Approval Route': route, Version: 1 });
+  po('pA', 'Pending CA', 'Factory Head,CA'); po('pB', 'Pending Factory Head', 'Factory Head,CA'); po('pC', 'Sent to Vendor', 'Factory Head');
+  h.append('POLines', { 'PO Key': 'pA', 'Item ID': 'I1', 'Price Query to HO': 'carton price?' });
+
+  M.setup(h);
+
+  assert.deepEqual(h.read('Roles').map(r => r.Role), ['Admin', 'Factory Head', 'Purchase']);
+  assert.equal(h.read('Roles').find(r => r.Role === 'Admin')[rk], '2500000', 'Admin inherits the limit CA had');
+  const u = Object.fromEntries(h.read('Users').map(r => [r['Login ID'], r.Role]));
+  assert.equal(u.mohit, 'Admin'); assert.equal(u.hoteam, 'Admin'); assert.equal(u.navneet, 'Purchase');
+  assert.ok(!('demo.ca' in u) && !('demo.ho' in u), 'demo CA/HO logins removed');
+  const p = Object.fromEntries(h.read('PurchaseOrders').map(r => [r['PO Key'], [r.Status, r['Approval Route']]]));
+  assert.deepEqual(p.pA, ['Pending Admin', 'Factory Head,Admin']); assert.deepEqual(p.pB, ['Pending Factory Head', 'Factory Head,Admin']); assert.deepEqual(p.pC, ['Sent to Vendor', 'Factory Head']);
+  const line = h.read('POLines').find(r => r['PO Key'] === 'pA');
+  assert.equal(line['Price Query to Admin'], 'carton price?'); assert.ok(!('Price Query to HO' in line), 'column renamed in place, data kept');
+  const snapshot = () => JSON.stringify([h.read('Roles'), h.read('Users'), h.read('PurchaseOrders'), h.read('POLines')]);
+  const again = snapshot();
+  M.setup(h);
+  assert.equal(snapshot(), again, 'running setup again changes nothing');
 });
 
 console.log('PO letterhead settings & archived PDF');

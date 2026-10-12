@@ -14,9 +14,8 @@ export function fixtureUsers(): Rows {
     ({ loginId, password: loginId + '123', name, role, department, level, reportsTo, active: true });
   return {
     users: [
-      u('admin', 'Administrator', 'Admin', 'Management', 5), u('mohit', 'Mohit (CA)', 'CA', 'Finance', 4, 'admin'),
-      u('ho', 'Head Office', 'HO', 'Head Office', 4, 'admin'), u('factoryhead', 'Factory Head', 'Factory Head', 'Factory', 3, 'mohit'),
-      u('navneet', 'Navneet', 'Purchase', 'Purchase', 2, 'factoryhead'), u('accounts', 'Accounts', 'Accounts', 'Accounts', 2, 'mohit'),
+      u('admin', 'Administrator', 'Admin', 'Management', 5), u('factoryhead', 'Factory Head', 'Factory Head', 'Factory', 3, 'admin'),
+      u('navneet', 'Navneet', 'Purchase', 'Purchase', 2, 'factoryhead'), u('accounts', 'Accounts', 'Accounts', 'Accounts', 2, 'admin'),
       u('inventory', 'Inventory (Factory)', 'Inventory', 'Factory', 1, 'factoryhead'),
     ],
   };

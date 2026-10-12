@@ -88,6 +88,13 @@ var host = {
   },
   update: function (name, idx, row) { host._write(_ss().getSheetByName(name), idx, row); },
   remove: function (name, idx) { _ss().getSheetByName(name).deleteRow(idx); },
+  renameHeader: function (name, from, to) {
+    var sh = _ss().getSheetByName(name);
+    if (!sh || sh.getLastColumn() < 1) return;
+    var hdr = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(String);
+    var i = hdr.indexOf(from);
+    if (i >= 0 && hdr.indexOf(to) < 0) sh.getRange(1, i + 1).setValue(to);
+  },
 
   withLock: function (fn) {
     var lock = LockService.getScriptLock();
@@ -177,8 +184,8 @@ function installBackup() {
 /**
  * OPTIONAL. Fills the EMPTY business tabs with realistic sample data so you can see how everything looks and try each role:
  * 6 vendors, 12 items (several sold by 3 vendors at different prices), 10 POs at every stage, receipts, payments,
- * old pending balances, stock in/out, 2 low-stock items. Also adds 6 logins: demo.purchase, demo.factory, demo.ca,
- * demo.ho, demo.accounts, demo.store (password Demo@1234). Does nothing if the sheet already has data.
+ * old pending balances, stock in/out, 2 low-stock items. Also adds 4 logins: demo.purchase, demo.factory,
+ * demo.accounts, demo.store (password Demo@1234); use your own admin login for the Admin parts. Does nothing if the sheet already has data.
  */
 function loadSampleData() {
   var msg = Core.loadSample(host, Utilities.formatDate(new Date(), 'Asia/Kolkata', 'yyyy-MM-dd'));

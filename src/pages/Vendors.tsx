@@ -26,7 +26,7 @@ export default function Vendors() {
         <h2 style={{ margin: 0 }}>Vendors</h2>
         {ho && <button className="btn primary" onClick={() => setEditing({ ...blank })}>+ New vendor</button>}
       </div>
-      {!ho && <div className="note">Vendor details and prices are managed by Head Office. You can view them here.</div>}
+      {!ho && <div className="note">Vendor details and prices are managed by the Admin. You can view them here.</div>}
 
       {editing && <VendorEditor v={editing} onClose={() => setEditing(null)} />}
 

@@ -19,7 +19,6 @@ export function sampleUsers(): any[] {
     ({ loginId: SAMPLE_USER_PREFIX + id, password: SAMPLE_PASSWORD, name, role, department, level, reportsTo: 'admin', active: true });
   return [
     u('purchase', 'Demo Purchase', 'Purchase', 'Purchase', 2), u('factory', 'Demo Factory Head', 'Factory Head', 'Factory', 3),
-    u('ca', 'Demo CA', 'CA', 'Finance', 4), u('ho', 'Demo HO', 'HO', 'Head Office', 4),
     u('accounts', 'Demo Accounts', 'Accounts', 'Accounts', 2), u('store', 'Demo Store', 'Inventory', 'Factory', 1),
   ];
 }
@@ -65,7 +64,7 @@ export function sampleData(t: string): Rows {
 
   // ------------------------------------------------------------ purchase orders (numbered in date order)
   interface PoSpec { n: number; vendor: string; date: number; lines: [string, number][]; status: string; route: string[]; step: number; advance: number; advStatus: string; expected: number; sent?: number; terms: string; events: [number, string, string][] }
-  const P = 'Demo Purchase', F = 'Demo Factory Head', C = 'Demo CA', A = 'Demo Accounts', S = 'Demo Store', H = 'Demo HO';
+  const P = 'Demo Purchase', F = 'Demo Factory Head', A = 'Demo Accounts', S = 'Demo Store', H = 'Administrator';
   const pos: PoSpec[] = [
     { n: 1, vendor: 'V6', date: -60, lines: [['I6', 400]], status: 'Sent to Vendor', route: ['Factory Head'], step: 1, advance: 0, advStatus: 'Not Required', expected: -45, sent: -58, terms: 'Delivery at factory gate.',
       events: [[-60, P, 'Draft created and submitted for approval'], [-59, F, 'Approved'], [-58, P, 'Sent to vendor via Email'], [-55, S, 'Goods received, invoice DH-221'], [-53, A, 'Invoice accepted'], [-40, A, 'Paid 48144 against invoice']] },
@@ -76,11 +75,11 @@ export function sampleData(t: string): Rows {
     { n: 4, vendor: 'V3', date: -14, lines: [['I5', 100], ['I6', 500]], status: 'Sent to Vendor', route: ['Factory Head'], step: 1, advance: 0, advStatus: 'Not Required', expected: 3, sent: -12, terms: 'Part delivery allowed.',
       events: [[-14, P, 'Draft created and submitted for approval'], [-13, F, 'Approved'], [-12, P, 'Sent to vendor via Email'], [-2, S, 'Goods received, invoice KT-5502 (60 of 100 sets)']] },
     { n: 5, vendor: 'V3', date: -7, lines: [['I6', 600]], status: 'Sent to Vendor', route: ['Factory Head'], step: 1, advance: 0, advStatus: 'Not Required', expected: 5, sent: -5, terms: '',
-      events: [[-7, P, 'Draft created and submitted for approval'], [-6, F, 'Approved'], [-5, P, 'Sent to vendor via Email'], [-1, S, 'Price query raised to HO: Vendor invoice shows Rs 99 per carton, PO says Rs 95']] },
+      events: [[-7, P, 'Draft created and submitted for approval'], [-6, F, 'Approved'], [-5, P, 'Sent to vendor via Email'], [-1, S, 'Price query raised to Admin: Vendor invoice shows Rs 99 per carton, PO says Rs 95']] },
     { n: 6, vendor: 'V2', date: -6, lines: [['I8', 200]], status: 'Rejected', route: ['Factory Head'], step: 0, advance: 0, advStatus: 'Not Required', expected: 10, terms: '',
       events: [[-6, P, 'Draft created and submitted for approval'], [-5, F, 'Not approved – Bharat Foam is cheaper for headrests, please re-raise']] },
-    { n: 7, vendor: 'V5', date: -4, lines: [['I4', 1500], ['I9', 800]], status: 'Pending CA', route: ['Factory Head', 'CA'], step: 1, advance: 200000, advStatus: 'Not Required', expected: 20, terms: '20% advance, balance 30 days.',
-      events: [[-4, P, 'Draft created and submitted for approval'], [-3, F, 'Approved – OK to proceed, needs CA since above Rs 10 Lac']] },
+    { n: 7, vendor: 'V5', date: -4, lines: [['I4', 1500], ['I9', 800]], status: 'Pending Admin', route: ['Factory Head', 'Admin'], step: 1, advance: 200000, advStatus: 'Not Required', expected: 20, terms: '20% advance, balance 30 days.',
+      events: [[-4, P, 'Draft created and submitted for approval'], [-3, F, 'Approved – OK to proceed, needs the Admin since above Rs 10 Lac']] },
     { n: 8, vendor: 'V6', date: -2, lines: [['I7', 100], ['I10', 50]], status: 'Approved', route: ['Factory Head'], step: 1, advance: 30000, advStatus: 'Requested', expected: 12, terms: 'Advance before dispatch.',
       events: [[-2, P, 'Draft created and submitted for approval'], [-1, F, 'Approved'], [-1, 'System', 'Advance request sent to Accounts']] },
     { n: 9, vendor: 'V4', date: -1, lines: [['I3', 200], ['I11', 20]], status: 'Pending Factory Head', route: ['Factory Head'], step: 0, advance: 0, advStatus: 'Not Required', expected: 14, terms: '',

@@ -24,7 +24,7 @@ Tab colours tell you what to touch: **orange = access/settings**, **green = mast
 | Tab | You edit? | Purpose |
 |---|---|---|
 | `Users` | ✏️ | Login ID, Password, Name, **Role**, Department, **Level**, Reports To, Active |
-| `Roles` | ✏️ | One row per role: its **level**, **"Approves POs above Rs"**, and a Yes/No column for each thing it may do (create POs, pay advances, receive goods, issue stock, adjust stock, accept invoices & pay, manage vendors/items/prices, manage users) |
+| `Roles` | ✏️ | One row per role (five to start with): its **level**, **"Approves POs above Rs"**, and a Yes/No column for each thing it may do (create POs, pay advances, receive goods, issue stock, adjust stock, accept invoices & pay, manage vendors/items/prices, manage users) |
 | `Settings` | ✏️ | Company name, MSME max days (45), tax rates (`0,5,18`), invoice tolerance, how many months of settled history the app loads |
 | `Vendors` | ✏️ | Name, contact, email/WhatsApp, **MSME**, **MSME type**, **Udyam No**, GSTIN, PAN, address, payment terms, bank details, Active |
 | `Items` | ✏️ | Item name, unit, category, min-stock alert, Active |
@@ -62,7 +62,7 @@ You need: a Google account that will own the data (use a company account, not a 
 1. Open the **Users** tab. There is one row: Login ID **`admin`**, Password **empty**. (There is no default password.)
 2. Type your own password in the Password cell. At the first login the app replaces it with a secure hash.
 3. Add one row per staff member: **Login ID, Password, Full Name, Role, Department, Level, Active = Yes**.
-   Roles that exist: `Admin`, `Factory Head`, `CA`, `HO`, `Purchase`, `Accounts`, `Inventory` (see the Roles tab; add your own rows there).
+   The five roles: **`Purchase`**, **`Accounts`**, **`Inventory`**, **`Factory Head`** and **`Admin`** (see the Roles tab). **Admin does everything**: second-level approver for POs above Rs 10 Lac, vendors/items/prices, stock corrections, price queries and users. Give the CA and the head-office people an `Admin` login.
 4. **Share the spreadsheet with the Admin only.** Staff use the app and never need access to the Sheet (the Users tab holds password hashes).
 
 ### Step 5 – Deploy as a web app
@@ -87,9 +87,9 @@ Commit it (or send it to me and I will). Every user's browser then connects auto
 ### Step 7½ (optional) – See it working with sample data first
 Not sure how it should look? In Apps Script choose **`loadSampleData`** → **Run**. It fills the empty Sheet with realistic sample data:
 6 vendors (MSME and non-MSME, with Udyam numbers), 12 items – some sold by 3 vendors at different prices – 10 POs at every stage (draft, waiting for approval,
-waiting for CA, rejected, approved/advance due, sent, delayed, part-received, closed), receipts, payments, an open price query, old pending balances
+waiting for the Admin, rejected, approved/advance due, sent, delayed, part-received, closed), receipts, payments, an open price query, old pending balances
 (one overdue MSME bill), stock in/out, and two low-stock items.
-It also adds six logins to try each role: `demo.purchase`, `demo.factory`, `demo.ca`, `demo.ho`, `demo.accounts`, `demo.store` – password **`Demo@1234`**.
+It also adds four logins to try the staff roles: `demo.purchase`, `demo.factory`, `demo.accounts`, `demo.store` – password **`Demo@1234`**. Use your own `admin` login for everything the Admin does.
 It only works on an empty system and never overwrites anything.
 **Before real use run `clearAllDataBeforeGoingLive`** – after a confirmation box it deletes all sample vendors, items, POs, stock… and the demo logins (your admin, Roles and Settings stay).
 Never run that function once real data is in.
@@ -100,6 +100,8 @@ Never run that function once real data is in.
 3. Log in as Purchase → **New PO**. The flow is live.
 
 ### Updating an existing install to a newer version
+(If your sheet still has the old `CA` and `HO` roles, `setup` merges them into `Admin` once: real CA/HO users become Admin, `Pending CA` POs become `Pending Admin`, and the demo.ca / demo.ho logins are removed.)
+
 Paste the new `Code.gs` over the old one, run **`setup`** (it only *adds* what is missing: new Settings rows and columns such as *PO PDF sent*, and it tidies up settings rows that older releases created for a letterhead the PO no longer has; it never changes your data), then **Deploy → Manage deployments → ✏️ → New version → Deploy**. Re-deploy the app (AI Studio / `dist/`) too when the screens changed.
 
 ### Already ran the earlier version (two spreadsheets)?
@@ -125,7 +127,7 @@ Nothing real is lost – just start clean. Easiest (keeps your Web app URL):
 | **Issue material to production** | Stock → **Issue stock** (item, qty, department/purpose). Can't issue more than is on hand |
 | **Fix a stock count** | Stock → **Adjust stock** (needs a reason; only roles with *Adjust Stock*) |
 | **Add a person** | Users & Access (or a row in the `Users` tab) |
-| **Change who approves, or the Rs 10 Lac limit** | `Roles` tab → column *Approves POs above Rs* (Factory Head `0`, CA `1000000`; blank = not an approver) |
+| **Change who approves, or the Rs 10 Lac limit** | `Roles` tab → column *Approves POs above Rs* (Factory Head `0`, Admin `1000000`; blank = not an approver) |
 | **Give a role a new power** | `Roles` tab → put **Yes** in that role's column |
 | **See old settled POs** | Top bar → **Load full history** |
 
@@ -160,7 +162,7 @@ Emailing/WhatsApp-ing the PDF is still a manual attach (a browser can't attach f
 - If Google changes something, only `apps-script/host.gs` needs touching – the business rules are separate.
 
 ## Access model
-- Every screen and button follows the **Roles** tab. Approval is by *role at the current step*: a PO "Pending CA" can be approved only by a user whose Role is `CA`.
+- Every screen and button follows the **Roles** tab. Approval is by *role at the current step*: a PO "Pending Admin" can be approved only by a user whose Role is `Admin`.
 - The server re-checks every save: role permission, approval route (recomputed from the Roles tab), prices (must equal that vendor's price), received quantity vs pending, advance deduction, invoice total, payments (accepted invoice, not above the balance), stock issue (not below zero), no edits to past payments/stock/log, and a version check so two people can't silently overwrite each other.
 - Passwords are SHA-256 hashes in the Users tab (a plain password typed there is hashed at that person's next login). 5 wrong tries lock a login for 15 minutes; sessions last 6 hours.
 - **Honest limits:** an internal tool on Google Apps Script, not bank-grade. Anyone who can *edit the spreadsheet* can change anything (including passwords) – that is why only the Admin gets access. Each save takes ~1–3 s. Files must be images/PDF up to 8 MB (photos are shrunk automatically).

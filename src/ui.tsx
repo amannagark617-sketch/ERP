@@ -14,7 +14,7 @@ export function Link({ to, children, className }: { to: string; children: ReactN
 }
 
 const TONE: Record<string, string> = {
-  Draft: 'gray', 'Pending Factory Head': 'amber', 'Pending CA': 'amber', Rejected: 'red', Approved: 'blue',
+  Draft: 'gray', 'Pending Factory Head': 'amber', 'Pending Admin': 'amber', Rejected: 'red', Approved: 'blue',
   'Sent to Vendor': 'blue', 'Partially Received': 'purple', 'Received – payment open': 'purple', Closed: 'green',
   Requested: 'amber', 'Advance Paid': 'green', 'Fully Paid': 'green', Delay: 'red', MSME: 'orange',
   Open: 'amber', Resolved: 'green',

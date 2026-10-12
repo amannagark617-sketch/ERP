@@ -16,6 +16,7 @@ export interface Host {
   append(name: string, row: Record<string, any>): number; // returns new row index
   update(name: string, rowIdx: number, row: Record<string, any>): void;
   remove(name: string, rowIdx: number): void;
+  renameHeader(sheet: string, from: string, to: string): void;  // rename a column header in place (keeps its data)
   withLock<T>(fn: () => T): T;
   cacheGet(key: string): string | null;
   cachePut(key: string, value: string, ttlSeconds: number): void;
@@ -357,7 +358,7 @@ function guards(action: string, user: User, ops: Op[], db: Db) {
     for (const l of v.ups('poLines')) {
       if (l.id !== `${l.poId}:${l.itemId}`) bad('Invalid PO line');
       const cur = db.find('poLines', l.id);
-      if (cur) { if (cur.price !== l.price || cur.itemId !== l.itemId) bad('PO price cannot be changed. Ask HO to update the vendor price.'); continue; }
+      if (cur) { if (cur.price !== l.price || cur.itemId !== l.itemId) bad('PO price cannot be changed. Ask the Admin to update the vendor price.'); continue; }
       const po = v.get('pos', l.poId);
       const pr = po && db.find('prices', `${po.vendorId}:${l.itemId}`);
       if (!pr || pr.price !== l.price) bad('PO price must match the vendor price list');
@@ -452,9 +453,9 @@ function guards(action: string, user: User, ops: Op[], db: Db) {
 
   // ---- master data
   if (action === 'master.manage') {
-    for (const l of v.ups('poLines')) { // HO may only close a price query
+    for (const l of v.ups('poLines')) { // the Admin may only close a price query
       const cur = db.find('poLines', l.id);
-      if (!cur || !same(cur, l, ['qty', 'price', 'itemId', 'poId', 'queryNote', 'queryBy']) || l.queryStatus !== 'Resolved') bad('HO can only resolve price queries here');
+      if (!cur || !same(cur, l, ['qty', 'price', 'itemId', 'poId', 'queryNote', 'queryBy']) || l.queryStatus !== 'Resolved') bad('Only the price query can be closed here');
     }
     for (const p of v.ups('prices')) {
       if (!db.find('vendors', p.vendorId) && !v.get('vendors', p.vendorId)) bad('Unknown vendor in price list', 'ERROR');
@@ -658,8 +659,42 @@ const OLD_LETTERHEAD_ROWS: Record<string, string[]> = {
   DeliverTo: ['', 'Little Nap Subhav Manufacturing Plant, Shree Shubham Logistics Park, 27-28, AB Road Bypass, Dewas, Madhya Pradesh 455001'],
 };
 
+/** Column headers renamed in later releases: [tab, old header, new header]. Applied in place so no data is lost. */
+const RENAMED_HEADERS: [string, string, string][] = [['POLines', 'Price Query to HO', 'Price Query to Admin']];
+
+/**
+ * The CA and HO roles were merged into Admin. On an existing sheet this (once, safely):
+ *  - gives Admin the "Approves POs above Rs" limit that CA had, and deletes the CA and HO rows from the Roles tab
+ *  - turns real users that had the CA/HO role into Admin, and removes the demo.ca / demo.ho sample logins
+ *  - renames "Pending CA" POs to "Pending Admin" and the CA step of every approval route to Admin
+ * It does nothing once no CA/HO role is left.
+ */
+function mergeCaHoIntoAdmin(host: Host) {
+  const db = new Db(host);
+  const old = db.rows('roles').filter(r => /^(ca|ho)$/i.test(String(r.role).trim()));
+  if (!old.length) return;
+  const now = host.now();
+  const ca = old.find(r => /^ca$/i.test(String(r.role).trim()));
+  const admin = db.rows('roles').find(r => lc(r.role) === 'admin');
+  if (admin && String(admin.approvesAbove).trim() === '') {
+    const limit = ca && String(ca.approvesAbove).trim() !== '' ? ca.approvesAbove : '1000000';
+    db.touch('roles', { ...admin, approvesAbove: limit });
+  }
+  const users = db.rows('users');
+  const gone = users.filter(u => /^(ca|ho)$/i.test(String(u.role).trim()) && lc(u.loginId).indexOf('demo.') === 0);
+  users.filter(u => /^(ca|ho)$/i.test(String(u.role).trim()) && gone.indexOf(u) < 0).forEach(u => db.touch('users', { ...u, role: 'Admin', level: 5 }));
+  for (const p of db.rows('pos')) {
+    const route = String(p.route).split(',').map(x => (lc(x) === 'ca' ? 'Admin' : x)).join(',');
+    const status = lc(p.status) === 'pending ca' ? 'Pending Admin' : p.status;
+    if (route !== p.route || status !== p.status) db.touch('pos', { ...p, route, status, _v: (p._v || 0) + 1, _at: now, _by: 'migration' });
+  }
+  gone.sort((a, b) => b.__row - a.__row).forEach(u => host.remove(def('users').sheet, u.__row));
+  old.sort((a, b) => b.__row - a.__row).forEach(r => host.remove(def('roles').sheet, r.__row));
+}
+
 export function setup(host: Host, extra?: Partial<Record<TableKey, any[]>>): string {
   const keys = Object.keys(TABLES) as TableKey[];
+  for (const [sheet, from, to] of RENAMED_HEADERS) host.renameHeader(sheet, from, to);
   for (const k of keys) {
     const d = def(k);
     const cols = allCols(d);
@@ -678,6 +713,7 @@ export function setup(host: Host, extra?: Partial<Record<TableKey, any[]>>): str
   for (const s of configSeed().settings!) if (!db.find('settings', s.key)) db.put('settings', s);
   const stale = db.rows('settings').filter(r => OLD_LETTERHEAD_ROWS[r.key] && OLD_LETTERHEAD_ROWS[r.key].indexOf(r.value) >= 0);
   stale.sort((a, b) => b.__row - a.__row).forEach(r => host.remove(def('settings').sheet, r.__row)); // bottom-up so row numbers stay valid
+  mergeCaHoIntoAdmin(host);
   return 'Setup complete.';
 }
 
@@ -692,8 +728,8 @@ export function loadSample(host: Host, today: string): string {
   for (const k of Object.keys(data) as TableKey[]) for (const r of data[k]) db.put(k, r);
   for (const u of sampleUsers()) if (!db.rows('users').some(x => lc(x.loginId) === lc(u.loginId))) db.put('users', u);
   host.bumpStamp();
-  return 'Sample data loaded: 6 vendors, 12 items, 18 vendor prices, 10 POs, receipts, payments, stock movements. '
-    + 'Log in with demo.purchase / demo.factory / demo.ca / demo.ho / demo.accounts / demo.store (password Demo@1234). '
+  return 'Sample data loaded: 7 vendors, 12 items, 18 vendor prices, 10 POs, receipts, payments, stock movements. '
+    + 'Log in with demo.purchase / demo.factory / demo.accounts / demo.store (password Demo@1234), and use your own admin login for the Admin parts. '
     + 'Remove everything with clearAllDataBeforeGoingLive() before real use.';
 }
 
