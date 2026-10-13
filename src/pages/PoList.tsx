@@ -1,15 +1,16 @@
 import { useState } from 'react';
 import { useAuth, useStore } from '../store';
 import { displayStatus, isDelayed, isOpenPO, outstanding, poValue, totalPending, vendorOf } from '../domain';
-import { Badge, Card, Empty, Link } from '../ui';
+import { Badge, Card, Empty, Link, QuickApprove } from '../ui';
 import { fmtDate, inr } from '../utils';
 
 const TABS = ['All', 'Awaiting approval', 'Open', 'Delay / Pending', 'Closed'] as const;
 
 export default function PoList() {
   const s = useStore();
-  const { can, sees } = useAuth();
-  const [tab, setTab] = useState<(typeof TABS)[number]>('All');
+  const { can, sees, role } = useAuth();
+  const [tab, setTab] = useState<(typeof TABS)[number]>(() => (can('po.approve') && s.pos.some(p => p.status === 'Pending ' + role) ? 'Awaiting approval' : 'All'));
+  const mine = (p: { status: string }) => can('po.approve') && p.status === 'Pending ' + role;
   const rows = [...s.pos].reverse().filter(p => {
     const st = displayStatus(s, p);
     if (tab === 'Awaiting approval') return p.status.startsWith('Pending');
@@ -30,7 +31,7 @@ export default function PoList() {
       <Card>
         {rows.length === 0 ? <Empty>No purchase orders here.</Empty> : (
           <div className="tablewrap"><table>
-            <thead><tr><th>PO</th><th>Date</th><th>Vendor</th><th>Dept</th><th className="r">Value</th><th>Expected</th><th className="r">Pending qty</th><th>Status</th>{sees('Accounts') && <th className="r">Outstanding</th>}</tr></thead>
+            <thead><tr><th>PO</th><th>Date</th><th>Vendor</th><th>Dept</th><th className="r">Value</th><th>Expected</th><th className="r">Pending qty</th><th>Status</th>{sees('Accounts') && <th className="r">Outstanding</th>}{rows.some(mine) && <th>Your approval</th>}</tr></thead>
             <tbody>{rows.map(p => (
               <tr key={p.id} className={isDelayed(s, p) ? 'hl' : ''}>
                 <td><Link to={`/pos/${p.id}`}>{p.poNo}</Link></td><td>{fmtDate(p.date)}</td><td>{vendorOf(s, p.vendorId)?.name}</td><td>{p.department}</td>
@@ -38,6 +39,7 @@ export default function PoList() {
                 <td className="r">{p.status === 'Sent to Vendor' ? totalPending(s, p) : '—'}</td>
                 <td><Badge>{displayStatus(s, p)}</Badge> {isDelayed(s, p) && <Badge>Delay</Badge>}</td>
                 {sees('Accounts') && <td className="r">{inr(outstanding(s, p.id))}</td>}
+                {rows.some(mine) && <td><QuickApprove po={p} /></td>}
               </tr>
             ))}</tbody>
           </table></div>

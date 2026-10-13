@@ -1,6 +1,8 @@
 import { ReactNode, useState } from 'react';
 import { fmtDate, inr, today } from './utils';
-import { fetchFile, uploadFile } from './store';
+import { actions, fetchFile, uploadFile, useAuth } from './store';
+import { poValue } from './domain';
+import type { PurchaseOrder } from './types';
 
 /** Run an action (sync or async) and show any error to the user. Resolves true on success. */
 export async function run(fn: () => unknown): Promise<boolean> {
@@ -104,6 +106,21 @@ export function DateInput({ value, onChange }: { value: string; onChange: (iso: 
       <input type="date" className="dp" value={value} aria-label="Pick date"
         onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { /* older browsers open on their own */ } }}
         onChange={e => onChange(e.target.value)} />
+    </span>
+  );
+}
+
+/** Approve / Not approved straight from a list - no need to open the PO. Shown only to the role whose turn it is. */
+export function QuickApprove({ po }: { po: PurchaseOrder }) {
+  const { can, role } = useAuth();
+  if (!can('po.approve') || po.status !== 'Pending ' + role) return null;
+  return (
+    <span className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
+      <button className="btn sm primary" onClick={() => { if (confirm(`Approve ${po.poNo} (${inr(poValue(po))})?`)) run(() => actions.approve(po.id, '')); }}>Approve</button>
+      <button className="btn sm danger" onClick={() => {
+        const why = prompt(`Not approving ${po.poNo}. Reason (optional):`);
+        if (why !== null) run(() => actions.reject(po.id, why.trim()));
+      }}>Reject</button>
     </span>
   );
 }

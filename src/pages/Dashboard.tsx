@@ -1,13 +1,14 @@
 import { useAuth, useSnap, useStore } from '../store';
 import { approvalRoute, displayStatus, isDelayed, isLowStock, isOpenPO, outstanding, poValue, receiptBalance, vendorOf } from '../domain';
-import { Badge, Card, Empty, Link, Stat } from '../ui';
+import { Badge, Card, Empty, Link, QuickApprove, Stat } from '../ui';
 import { fmtDate, inr, today } from '../utils';
+import type { PurchaseOrder } from '../types';
 
 export default function Dashboard() {
   const s = useStore();
   const { user, can, role, sees } = useAuth();
   const delayed = s.pos.filter(p => isDelayed(s, p));
-  const inbox: { to: string; text: string; sub: string }[] = [];
+  const inbox: { to: string; text: string; sub: string; po?: PurchaseOrder }[] = [];
   const name = (id: string) => vendorOf(s, id)?.name ?? '';
 
   if (can('po.save')) {
@@ -18,7 +19,7 @@ export default function Dashboard() {
     s.pos.filter(p => p.status === 'Approved' && p.advanceStatus !== 'Requested').forEach(p => inbox.push({ to: `/pos/${p.id}`, text: `${p.poNo} is ready to send to the vendor`, sub: name(p.vendorId) }));
     delayed.forEach(p => inbox.push({ to: `/pos/${p.id}`, text: `${p.poNo} is delayed – follow up`, sub: `Expected ${fmtDate(p.expectedDate)}` }));
   }
-  if (can('po.approve')) s.pos.filter(p => p.status === 'Pending ' + role).forEach(p => inbox.push({ to: `/pos/${p.id}`, text: `Approve ${p.poNo}`, sub: `${inr(poValue(p))} · route ${approvalRoute(p).join(' → ')}` }));
+  if (can('po.approve')) s.pos.filter(p => p.status === 'Pending ' + role).forEach(p => inbox.push({ to: `/pos/${p.id}`, text: `Approve ${p.poNo} · ${name(p.vendorId)}`, sub: `${inr(poValue(p))} · route ${approvalRoute(p).join(' → ')}`, po: p }));
   if (can('advance.pay')) s.pos.filter(p => p.advanceStatus === 'Requested').forEach(p => inbox.push({ to: '/accounts', text: `Pay advance for ${p.poNo}`, sub: inr(p.advanceAmount) }));
   if (can('invoice.accept')) s.receipts.filter(r => !r.accepted).forEach(r => inbox.push({ to: '/accounts', text: `Accept invoice ${r.invoiceNo}`, sub: inr(r.grandTotal) }));
   if (can('receipt.create')) s.pos.filter(p => isOpenPO(s, p)).forEach(p => inbox.push({ to: `/receipts/${p.id}/new`, text: `Receive goods for ${p.poNo}`, sub: name(p.vendorId) }));
@@ -49,7 +50,7 @@ export default function Dashboard() {
       <Card title={`Your action list (${inbox.length})`}>
         {inbox.length === 0 ? <Empty>Nothing waiting for you.</Empty> : (
           <table><tbody>{inbox.map((i, k) => (
-            <tr key={k}><td><Link to={i.to}>{i.text}</Link></td><td className="mut">{i.sub}</td></tr>
+            <tr key={k}><td><Link to={i.to}>{i.text}</Link></td><td className="mut">{i.sub}</td><td className="r">{i.po && <QuickApprove po={i.po} />}</td></tr>
           ))}</tbody></table>
         )}
       </Card>
