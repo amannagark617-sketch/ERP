@@ -2,7 +2,7 @@ import { Fragment, useState } from 'react';
 import { actions, useAuth, useSnap, useStore } from '../store';
 import { brandsInStock, fifo, fifoValue, isLowStock, itemName, knownBrands, ledger, stockOnHand } from '../domain';
 import { brandLabel, normBrand } from '../shared/keys';
-import { Card, Empty, Field, run } from '../ui';
+import { Card, DateInput, Empty, Field, run } from '../ui';
 import { fmtDate, num, today } from '../utils';
 
 const DEPTS = ['Production', 'Cutting', 'Stitching', 'Assembly', 'Packing', 'Maintenance', 'Sampling'];
@@ -137,7 +137,7 @@ function IssueForm() {
       <Field label="Quantity"><input type="number" min={0} value={qty || ''} onChange={e => setQty(+e.target.value)} /></Field>
       <Field label="Issued to (department / purpose)"><input list="depts" value={to} onChange={e => setTo(e.target.value)} /><datalist id="depts">{DEPTS.map(d => <option key={d} value={d} />)}</datalist></Field>
       <Field label="Note (optional)"><input value={note} onChange={e => setNote(e.target.value)} /></Field>
-      <Field label="Date"><input type="date" value={date} onChange={e => setDate(e.target.value)} /></Field>
+      <Field label="Date"><DateInput value={date} onChange={setDate} /></Field>
       <button className="btn primary" onClick={async () => { if (await run(() => actions.issueStock(itemId, brand, qty, to, note, date))) { setQty(0); setNote(''); } }}>Issue</button>
     </Card>
   );
@@ -161,7 +161,7 @@ function AdjustForm() {
       <Field label="Quantity (+ adds, − removes)"><input type="number" value={qty || ''} onChange={e => setQty(+e.target.value)} /></Field>
       {qty > 0 && <Field label="Unit cost ₹ (needed for FIFO value of opening stock)"><input type="number" min={0} value={cost || ''} onChange={e => setCost(+e.target.value)} /></Field>}
       <Field label="Reason"><input value={note} onChange={e => setNote(e.target.value)} placeholder="e.g. Opening stock, damaged, count correction" /></Field>
-      <Field label="Date"><input type="date" value={date} onChange={e => setDate(e.target.value)} /></Field>
+      <Field label="Date"><DateInput value={date} onChange={setDate} /></Field>
       <button className="btn primary" onClick={async () => { if (await run(() => actions.adjustStock(itemId, brand, qty, note, date, cost || undefined))) { setQty(0); setNote(''); setCost(0); } }}>Save adjustment</button>
     </Card>
   );

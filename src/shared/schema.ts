@@ -1,4 +1,5 @@
 import { lineKey } from './keys';
+import { parseDate, parseDateTime, showDate, showDateTime } from './dates';
 
 /**
  * Sheet layout - ONE Google Spreadsheet, 12 tabs.
@@ -7,7 +8,7 @@ import { lineKey } from './keys';
  * Column HEADERS are what people see/edit in the Sheet; KEYS are used in code.
  * Columns are matched by header name, so you can re-order or add your own extra columns freely.
  */
-export type ColType = 'text' | 'num' | 'bool' | 'date';
+export type ColType = 'text' | 'num' | 'bool' | 'date' | 'datetime';
 export interface Col { key: string; header: string; type: ColType; dflt?: boolean }
 export interface TableDef {
   sheet: string;
@@ -21,7 +22,7 @@ export interface TableDef {
 
 const c = (key: string, header: string, type: ColType = 'text', dflt = false): Col => ({ key, header, type, dflt });
 
-export const SYSTEM_COLS: Col[] = [c('_v', 'Version', 'num'), c('_at', 'Updated At'), c('_by', 'Updated By')];
+export const SYSTEM_COLS: Col[] = [c('_v', 'Version', 'num'), c('_at', 'Updated At', 'datetime'), c('_by', 'Updated By')];
 
 const ACCESS = '#e69138', MASTER = '#38761d', APP = '#999999';
 
@@ -121,7 +122,7 @@ export const TABLES = {
   },
   log: {
     sheet: 'Log', id: 'id', kind: 'config', color: APP,
-    cols: [c('time', 'Time'), c('user', 'User'), c('role', 'Role'), c('action', 'Action'), c('event', 'Event'), c('ref', 'PO Key'), c('detail', 'Detail'), c('id', 'Key')],
+    cols: [c('time', 'Time', 'datetime'), c('user', 'User'), c('role', 'Role'), c('action', 'Action'), c('event', 'Event'), c('ref', 'PO Key'), c('detail', 'Detail'), c('id', 'Key')],
   },
 } as const satisfies Record<string, TableDef>;
 
@@ -139,6 +140,8 @@ export function fromSheet(d: TableDef, raw: Record<string, any>): any {
     const v = raw[col.header];
     const blank = v === '' || v == null;
     if (col.type === 'num') e[col.key] = blank ? 0 : Number(v) || 0;
+    else if (col.type === 'date') e[col.key] = blank ? '' : parseDate(v);
+    else if (col.type === 'datetime') e[col.key] = blank ? '' : parseDateTime(v);
     else if (col.type === 'bool') e[col.key] = blank && col.dflt ? true : truthy(v);
     else e[col.key] = blank ? '' : String(v).trim();
   }
@@ -153,6 +156,8 @@ export function toSheet(d: TableDef, e: any): Record<string, any> {
     const v = e[col.key];
     if (col.type === 'bool') r[col.header] = v ? 'Yes' : 'No';
     else if (col.type === 'num') r[col.header] = v == null || v === '' ? '' : Number(v);
+    else if (col.type === 'date') r[col.header] = showDate(v);
+    else if (col.type === 'datetime') r[col.header] = showDateTime(v);
     else r[col.header] = v == null ? '' : String(v);
   }
   return r;

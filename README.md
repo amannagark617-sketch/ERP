@@ -175,6 +175,9 @@ Emailing/WhatsApp-ing the PDF is still a manual attach (a browser can't attach f
 - **Don'ts:** don't delete or rename header cells; don't sort or filter the grey tabs in place (use a copy or a filter *view*); keep the Sheet's owner account alive.
 - If Google changes something, only `apps-script/host.gs` needs touching – the business rules are separate.
 
+## Dates
+Every date – in the app, the PO PDF and the Google Sheet – is **DD-MMM-YYYY** (e.g. `05-Oct-2026`); timestamps (Updated At, Log time) are `05-Oct-2026 15:30:12` in Indian time. In the Sheet you may type a date in any usual way (`5/10/2026`, `05-10-2026`, `5 Oct 2026`, `2026-10-05`) – day always comes first – and it is understood and rewritten in the standard form. Running `setup` once converts all existing dates in an older Sheet.
+
 ## Stock valuation – FIFO (First-In, First-Out)
 - Every goods receipt line is a **batch** (date, GRN/invoice, qty, price before tax). Opening stock entered with *Adjust stock* + a **unit cost** is the first batch.
 - Every issue (and every negative adjustment) is taken from the **oldest batch first**, then the next one. Each brand of an item has its own queue.

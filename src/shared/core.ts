@@ -3,6 +3,7 @@
  * and unchanged in the tests (with an in-memory Host). The environment is injected through `Host`.
  */
 import { DATA_TABLES, TABLES, TableKey, allCols, def, fromSheet, toSheet } from './schema';
+import { parseDateTime, showDate, showDateTime } from './dates';
 import { sha256 } from './sha256';
 import { configSeed } from './seed';
 import { approversOf, routeFor } from './approval';
@@ -711,13 +712,32 @@ function fillDefaultScreens(host: Host) {
   }
 }
 
+/** Rewrite every date cell in the Sheet in the one standard form DD-MMM-YYYY (timestamps: DD-MMM-YYYY HH:mm:ss, Indian time). Safe to repeat. */
+function standardiseDates(host: Host) {
+  for (const k of Object.keys(TABLES) as TableKey[]) {
+    const d = def(k);
+    const dateCols = allCols(d).filter(c => c.type === 'date' || c.type === 'datetime');
+    if (!dateCols.length) continue;
+    for (const r of host.read(d.sheet)) {
+      const patch: Record<string, string> = {};
+      for (const c of dateCols) {
+        const v = r[c.header];
+        if (v === '' || v == null) continue;
+        const want = c.type === 'date' ? showDate(v) : showDateTime(parseDateTime(v));
+        if (want !== String(v)) patch[c.header] = want;
+      }
+      if (Object.keys(patch).length) host.update(d.sheet, r.__row, patch);
+    }
+  }
+}
+
 export function setup(host: Host, extra?: Partial<Record<TableKey, any[]>>): string {
   const keys = Object.keys(TABLES) as TableKey[];
   for (const [sheet, from, to] of RENAMED_HEADERS) host.renameHeader(sheet, from, to);
   for (const k of keys) {
     const d = def(k);
     const cols = allCols(d);
-    host.ensureSheet(d.sheet, cols.map(c => c.header), cols.filter(c => c.type === 'text' || c.type === 'date').map(c => c.header), d.color);
+    host.ensureSheet(d.sheet, cols.map(c => c.header), cols.filter(c => c.type === 'text' || c.type === 'date' || c.type === 'datetime').map(c => c.header), d.color);
   }
   const db = new Db(host);
   const fill = (rows: Partial<Record<TableKey, any[]>>) => {
@@ -734,6 +754,7 @@ export function setup(host: Host, extra?: Partial<Record<TableKey, any[]>>): str
   stale.sort((a, b) => b.__row - a.__row).forEach(r => host.remove(def('settings').sheet, r.__row)); // bottom-up so row numbers stay valid
   mergeCaHoIntoAdmin(host);
   fillDefaultScreens(host);
+  standardiseDates(host);
   return 'Setup complete.';
 }
 

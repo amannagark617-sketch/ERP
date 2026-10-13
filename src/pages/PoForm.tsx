@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { actions, useAuth, useStore } from '../store';
 import { approvalRoute, itemOf, offersFor, poValue, vendorOf } from '../domain';
-import { Card, Field, go, run } from '../ui';
+import { Card, DateInput, Field, go, run } from '../ui';
 import { addDays, inr, today } from '../utils';
 import { PoLine } from '../types';
 import { sameBrand, stockKey } from '../shared/keys';
@@ -43,7 +43,7 @@ export default function PoForm({ id }: { id?: string }) {
               {s.vendors.filter(v => v.active || v.id === vendorId).map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
             </select>
           </Field>
-          <Field label="Expected delivery date"><input type="date" value={expected} onChange={e => setExpected(e.target.value)} /></Field>
+          <Field label="Expected delivery date"><DateInput value={expected} onChange={setExpected} /></Field>
         </div>
         {vendor && <p className="mut">Contact: {vendor.contact} · {vendor.email} · WhatsApp {vendor.whatsapp} · Terms {vendor.paymentTermsDays} days{vendor.msme ? ` · MSME ${vendor.msmeType} (${vendor.udyamNo || 'Udyam no. missing'})` : ''}</p>}
       </Card>

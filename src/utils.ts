@@ -1,3 +1,4 @@
+import { showDate } from './shared/dates';
 export const inr = (n: number) =>
   new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(n || 0);
 export const num = (n: number) => new Intl.NumberFormat('en-IN', { maximumFractionDigits: 2 }).format(n || 0);
@@ -10,8 +11,8 @@ export const addDays = (d: string, n: number) => {
   x.setUTCDate(x.getUTCDate() + n);
   return x.toISOString().slice(0, 10);
 };
-export const fmtDate = (d?: string) =>
-  d ? new Date(d + 'T00:00:00Z').toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' }) : '—';
+/** The one date format everywhere: DD-MMM-YYYY */
+export const fmtDate = (d?: string) => (d ? showDate(d) : '—');
 export const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
 export const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 

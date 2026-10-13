@@ -16,6 +16,7 @@ import Stock from './pages/Stock';
 import Admin from './pages/Admin';
 import { Login, Setup } from './pages/Login';
 import { run } from './ui';
+import { fmtDate } from './utils';
 
 function Route({ path }: { path: string }) {
   const p = path.split('/').filter(Boolean);
@@ -101,7 +102,7 @@ export default function App() {
       <main>
         {s.error && <div className="warn">{s.error}</div>}
         {s.partial && (
-          <div className="note">Showing open work and everything since {s.cutoff} (older settled POs are hidden to keep things fast).{' '}
+          <div className="note">Showing open work and everything since {fmtDate(s.cutoff)} (older settled POs are hidden to keep things fast).{' '}
             <a href="#" onClick={e => { e.preventDefault(); run(loadFullHistory); }}>Load full history</a></div>
         )}
         {allowed ? <Guard resetKey={path}><Route path={path} /></Guard> : (

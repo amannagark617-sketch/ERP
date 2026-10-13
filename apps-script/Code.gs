@@ -256,9 +256,60 @@ var Core = (() => {
   var stockKey = (itemId, brand) => itemId + "|" + normBrand(brand).toLowerCase();
   var sameBrand = (a, b) => normBrand(a).toLowerCase() === normBrand(b).toLowerCase();
 
+  // src/shared/dates.ts
+  var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  var p2 = (n) => String(n).padStart(2, "0");
+  var IST_MIN = 330;
+  var valid = (y, m, d) => {
+    if (m < 1 || m > 12 || d < 1 || d > 31 || y < 1900 || y > 2200) return false;
+    const t = new Date(Date.UTC(y, m - 1, d));
+    return t.getUTCFullYear() === y && t.getUTCMonth() === m - 1 && t.getUTCDate() === d;
+  };
+  var iso = (y, m, d) => `${y}-${p2(m)}-${p2(d)}`;
+  var monthNo = (s) => MONTHS.findIndex((m) => m.toLowerCase() === s.slice(0, 3).toLowerCase()) + 1;
+  var year4 = (y) => y < 100 ? 2e3 + y : y;
+  function parseDate(v) {
+    if (v == null || v === "") return "";
+    const s = String(v).trim();
+    let m;
+    if (m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T ].*)?$/)) return valid(+m[1], +m[2], +m[3]) ? iso(+m[1], +m[2], +m[3]) : s;
+    if (m = s.match(/^(\d{1,2})[\s\-\/.]+([A-Za-z]{3,9})[\s\-\/.,]+(\d{2,4})$/)) {
+      const mo = monthNo(m[2]), y = year4(+m[3]);
+      return mo && valid(y, mo, +m[1]) ? iso(y, mo, +m[1]) : s;
+    }
+    if (m = s.match(/^(\d{1,2})[\-\/.](\d{1,2})[\-\/.](\d{2,4})$/)) {
+      const y = year4(+m[3]);
+      return valid(y, +m[2], +m[1]) ? iso(y, +m[2], +m[1]) : s;
+    }
+    return s;
+  }
+  function showDate(v) {
+    const s = parseDate(v);
+    const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    return m ? `${m[3]}-${MONTHS[+m[2] - 1]}-${m[1]}` : s;
+  }
+  function showDateTime(v) {
+    if (v == null || v === "") return "";
+    const t = new Date(String(v));
+    if (isNaN(t.getTime()) || !/^\d{4}-\d{2}-\d{2}T/.test(String(v))) return String(v);
+    const l = new Date(t.getTime() + IST_MIN * 6e4);
+    return `${p2(l.getUTCDate())}-${MONTHS[l.getUTCMonth()]}-${l.getUTCFullYear()} ${p2(l.getUTCHours())}:${p2(l.getUTCMinutes())}:${p2(l.getUTCSeconds())}`;
+  }
+  function parseDateTime(v) {
+    if (v == null || v === "") return "";
+    const s = String(v).trim();
+    if (/^\d{4}-\d{2}-\d{2}T.*(Z|[+-]\d{2}:?\d{2})$/.test(s)) return s;
+    const m = s.match(/^(.+?)\s+(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+    if (!m) return s;
+    const d = parseDate(m[1]).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!d) return s;
+    const ms = Date.UTC(+d[1], +d[2] - 1, +d[3], +m[2], +m[3], +(m[4] || 0)) - IST_MIN * 6e4;
+    return new Date(ms).toISOString();
+  }
+
   // src/shared/schema.ts
   var c = (key, header, type = "text", dflt = false) => ({ key, header, type, dflt });
-  var SYSTEM_COLS = [c("_v", "Version", "num"), c("_at", "Updated At"), c("_by", "Updated By")];
+  var SYSTEM_COLS = [c("_v", "Version", "num"), c("_at", "Updated At", "datetime"), c("_by", "Updated By")];
   var ACCESS = "#e69138";
   var MASTER = "#38761d";
   var APP = "#999999";
@@ -486,7 +537,7 @@ var Core = (() => {
       id: "id",
       kind: "config",
       color: APP,
-      cols: [c("time", "Time"), c("user", "User"), c("role", "Role"), c("action", "Action"), c("event", "Event"), c("ref", "PO Key"), c("detail", "Detail"), c("id", "Key")]
+      cols: [c("time", "Time", "datetime"), c("user", "User"), c("role", "Role"), c("action", "Action"), c("event", "Event"), c("ref", "PO Key"), c("detail", "Detail"), c("id", "Key")]
     }
   };
   var DATA_TABLES = Object.keys(TABLES).filter((k) => TABLES[k].kind === "data");
@@ -499,6 +550,8 @@ var Core = (() => {
       const v = raw[col.header];
       const blank = v === "" || v == null;
       if (col.type === "num") e[col.key] = blank ? 0 : Number(v) || 0;
+      else if (col.type === "date") e[col.key] = blank ? "" : parseDate(v);
+      else if (col.type === "datetime") e[col.key] = blank ? "" : parseDateTime(v);
       else if (col.type === "bool") e[col.key] = blank && col.dflt ? true : truthy(v);
       else e[col.key] = blank ? "" : String(v).trim();
     }
@@ -511,6 +564,8 @@ var Core = (() => {
       const v = e[col.key];
       if (col.type === "bool") r[col.header] = v ? "Yes" : "No";
       else if (col.type === "num") r[col.header] = v == null || v === "" ? "" : Number(v);
+      else if (col.type === "date") r[col.header] = showDate(v);
+      else if (col.type === "datetime") r[col.header] = showDateTime(v);
       else r[col.header] = v == null ? "" : String(v);
     }
     return r;
@@ -722,7 +777,7 @@ var Core = (() => {
   }
   function sampleData(t) {
     const D = (n) => addDays(t, n);
-    const iso = (n) => D(n) + "T10:00:00.000Z";
+    const iso2 = (n) => D(n) + "T10:00:00.000Z";
     const itemSpec = [
       ["I1", "Recliner mechanism (manual)", "pcs", "Mechanism", 50, true],
       ["I2", "Recliner mechanism (motorised)", "pcs", "Mechanism", 20, true],
@@ -937,7 +992,7 @@ var Core = (() => {
         queryStatus: p.n === 5 ? "Open" : "",
         queryBy: p.n === 5 ? S : ""
       }));
-      p.events.forEach(([d, who, text]) => logRows.push({ id: "lg" + ++lg, time: iso(d), user: who, role: "", action: "sample", event: text, ref: `po${p.n}`, detail: "sample data" }));
+      p.events.forEach(([d, who, text]) => logRows.push({ id: "lg" + ++lg, time: iso2(d), user: who, role: "", action: "sample", event: text, ref: `po${p.n}`, detail: "sample data" }));
       const sentVia = p.n === 3 ? "WhatsApp" : p.sent !== void 0 ? "Email" : "";
       return {
         id: `po${p.n}`,
@@ -1081,7 +1136,7 @@ var Core = (() => {
       mv("o8", -5, "I6", "", "OUT", 200, "Packing", "", S),
       mv("o9", -7, "I8", "Duraflex", "OUT", 30, "Assembly", "", S)
     );
-    const sys = (rows) => rows.map((r) => ({ ...r, _v: 1, _at: iso(0), _by: "sample" }));
+    const sys = (rows) => rows.map((r) => ({ ...r, _v: 1, _at: iso2(0), _by: "sample" }));
     return {
       items: sys(itemSpec.map((i) => ({ id: i[0], name: i[1], unit: i[2], category: i[3], minStock: i[4], active: i[5] }))),
       vendors: sys(vendorSpec.map((v) => ({
@@ -1878,13 +1933,30 @@ var Core = (() => {
       if (def_ && !String((_a = r.screens) != null ? _a : "").trim()) db.touch("roles", { ...r, screens: def_.join(", ") });
     }
   }
+  function standardiseDates(host) {
+    for (const k of Object.keys(TABLES)) {
+      const d = def(k);
+      const dateCols = allCols(d).filter((c2) => c2.type === "date" || c2.type === "datetime");
+      if (!dateCols.length) continue;
+      for (const r of host.read(d.sheet)) {
+        const patch = {};
+        for (const c2 of dateCols) {
+          const v = r[c2.header];
+          if (v === "" || v == null) continue;
+          const want = c2.type === "date" ? showDate(v) : showDateTime(parseDateTime(v));
+          if (want !== String(v)) patch[c2.header] = want;
+        }
+        if (Object.keys(patch).length) host.update(d.sheet, r.__row, patch);
+      }
+    }
+  }
   function setup(host, extra) {
     const keys = Object.keys(TABLES);
     for (const [sheet, from, to] of RENAMED_HEADERS) host.renameHeader(sheet, from, to);
     for (const k of keys) {
       const d = def(k);
       const cols = allCols(d);
-      host.ensureSheet(d.sheet, cols.map((c2) => c2.header), cols.filter((c2) => c2.type === "text" || c2.type === "date").map((c2) => c2.header), d.color);
+      host.ensureSheet(d.sheet, cols.map((c2) => c2.header), cols.filter((c2) => c2.type === "text" || c2.type === "date" || c2.type === "datetime").map((c2) => c2.header), d.color);
     }
     const db = new Db(host);
     const fill = (rows) => {
@@ -1900,6 +1972,7 @@ var Core = (() => {
     stale.sort((a, b) => b.__row - a.__row).forEach((r) => host.remove(def("settings").sheet, r.__row));
     mergeCaHoIntoAdmin(host);
     fillDefaultScreens(host);
+    standardiseDates(host);
     return "Setup complete.";
   }
   function loadSample(host, today, full = false) {

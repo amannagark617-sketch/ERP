@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { actions, uploadFile, useAuth, useStore } from '../store';
 import { advanceAvailable, computeReceipt, itemName, lineName, pendingQty, receivedQty, sameLine, vendorOf } from '../domain';
-import { Card, Field, FileInput, Link, go, run } from '../ui';
+import { Card, DateInput, Field, FileInput, Link, go, run } from '../ui';
 import { cfg } from '../config';
 import { inr, today } from '../utils';
 
@@ -59,8 +59,8 @@ export default function ReceiptForm({ poId }: { poId: string }) {
       <Card title="Invoice details">
         <div className="form2">
           <Field label="Invoice number"><input value={invoiceNo} onChange={e => setInvoiceNo(e.target.value)} /></Field>
-          <Field label="Invoice date"><input type="date" value={invoiceDate} onChange={e => setInvoiceDate(e.target.value)} /></Field>
-          <Field label="Received date (Factory In)"><input type="date" value={receivedDate} onChange={e => setReceivedDate(e.target.value)} /></Field>
+          <Field label="Invoice date"><DateInput value={invoiceDate} onChange={setInvoiceDate} /></Field>
+          <Field label="Received date (Factory In)"><DateInput value={receivedDate} onChange={setReceivedDate} /></Field>
           <Field label="Invoice grand total (as printed)"><input type="number" min={0} step="0.01" value={invoiceTotal || ''} onChange={e => setInvoiceTotal(+e.target.value)} /></Field>
           <FileInput onChange={setFile} label="Invoice copy (optional, saved to Google Drive)" />
         </div>

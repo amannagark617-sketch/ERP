@@ -1,7 +1,7 @@
 import { Fragment, ReactNode, useState } from 'react';
 import { actions, useAuth, useStore } from '../store';
 import { lineName, paidTotal, poOf, receiptBalance, vendorOf } from '../domain';
-import { Badge, Card, Empty, Field, FileLink, Link, PayForm, Stat, run } from '../ui';
+import { Badge, Card, DateInput, Empty, Field, FileLink, Link, PayForm, Stat, run } from '../ui';
 import { addDays, fmtDate, inr, today } from '../utils';
 import { Receipt } from '../types';
 
@@ -137,7 +137,7 @@ function OpeningForm() {
         <Field label="Vendor"><select value={vendorId} onChange={e => setVendorId(e.target.value)}><option value="">Select…</option>{s.vendors.filter(v => v.active).map(v => <option key={v.id} value={v.id}>{v.name}</option>)}</select></Field>
         <Field label="Bill / reference"><input value={ref} onChange={e => setRef(e.target.value)} /></Field>
         <Field label="Amount"><input type="number" min={0} value={amount || ''} onChange={e => setAmount(+e.target.value)} /></Field>
-        <Field label="Due date"><input type="date" value={due} onChange={e => setDue(e.target.value)} /></Field>
+        <Field label="Due date"><DateInput value={due} onChange={setDue} /></Field>
       </div>
       <button className="btn" onClick={() => run(() => actions.addOpening(vendorId, ref, amount, due)).then(ok => { if (ok) { setRef(''); setAmount(0); } })}>Add balance</button>
     </details>

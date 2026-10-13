@@ -1,5 +1,5 @@
 import { ReactNode, useState } from 'react';
-import { inr, today } from './utils';
+import { fmtDate, inr, today } from './utils';
 import { fetchFile, uploadFile } from './store';
 
 /** Run an action (sync or async) and show any error to the user. Resolves true on success. */
@@ -78,7 +78,7 @@ export function PayForm({ max, defaultAmount, requireShot, extra, folder, onSubm
       <Field label="Amount paid" hint={max !== undefined ? `Balance ${inr(max)}` : undefined}>
         <input type="number" min={0} step="0.01" value={amount} onChange={e => setAmount(+e.target.value)} />
       </Field>
-      <Field label="Payment date"><input type="date" value={date} onChange={e => setDate(e.target.value)} /></Field>
+      <Field label="Payment date"><DateInput value={date} onChange={setDate} /></Field>
       <FileInput onChange={setFile} label={requireShot ? 'Payment screenshot (attach)' : 'Payment screenshot (optional)'} />
       {extra}
       <div className="row">
@@ -93,5 +93,17 @@ export function PayForm({ max, defaultAmount, requireShot, extra, folder, onSubm
         <button className="btn" onClick={onCancel}>Cancel</button>
       </div>
     </div>
+  );
+}
+
+/** Date field that always shows DD-MMM-YYYY (the browser's own date box follows the phone/PC language instead). Click to pick from the calendar. */
+export function DateInput({ value, onChange }: { value: string; onChange: (iso: string) => void }) {
+  return (
+    <span className="dateinput">
+      <input readOnly value={value ? fmtDate(value) : ''} placeholder="DD-MMM-YYYY" />
+      <input type="date" className="dp" value={value} aria-label="Pick date"
+        onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { /* older browsers open on their own */ } }}
+        onChange={e => onChange(e.target.value)} />
+    </span>
   );
 }

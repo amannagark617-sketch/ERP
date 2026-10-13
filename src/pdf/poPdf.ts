@@ -1,6 +1,7 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { rupeesInWords } from './words';
+import { showDate } from '../shared/dates';
 
 export interface PoDoc {
   company: { brandName: string; signatory: string };
@@ -33,7 +34,7 @@ function b64(u8: Uint8Array): string {
 }
 const money = (n: number) => new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n || 0);
 const qtyFmt = (n: number) => new Intl.NumberFormat('en-IN', { maximumFractionDigits: 3 }).format(n || 0);
-const dateFmt = (d: string) => (d ? new Date(d + 'T00:00:00Z').toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' }) : '—');
+const dateFmt = (d: string) => (d ? showDate(d) : '—');
 
 export function buildPoPdf(d: PoDoc, a: PdfAssets): Uint8Array {
   const doc = new jsPDF({ unit: 'mm', format: 'a4', compress: true });
