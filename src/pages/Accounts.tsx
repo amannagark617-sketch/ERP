@@ -1,6 +1,6 @@
 import { Fragment, ReactNode, useState } from 'react';
 import { actions, useAuth, useStore } from '../store';
-import { lineName, paidTotal, poOf, receiptBalance, vendorOf } from '../domain';
+import { lineName, paidTotal, poOf, receiptBalance, vendorAccount, vendorOf } from '../domain';
 import { Badge, Card, DateInput, Empty, Field, FileLink, Link, PayForm, Stat, run } from '../ui';
 import { addDays, fmtDate, inr, today } from '../utils';
 import { Receipt } from '../types';
@@ -59,6 +59,25 @@ export default function Accounts() {
         <Stat label="Other payable" value={inr(sum(others))} />
         <Stat label="Old pending balances" value={inr(sum(old))} />
       </div>
+
+      <Card title="Vendor-wise: paid and pending">
+        {(() => {
+          const rows = s.vendors.map(v => ({ v, a: vendorAccount(s, v.id) })).filter(({ a }) => a.billed || a.paid || a.pendingDelivery)
+            .sort((x, y) => y.a.toPay - x.a.toPay || y.a.pendingDelivery - x.a.pendingDelivery);
+          if (!rows.length) return <Empty>No vendor activity yet.</Empty>;
+          const tot = rows.reduce((t0, { a }) => ({ billed: t0.billed + a.billed, paid: t0.paid + a.paid, toPay: t0.toPay + a.toPay, pend: t0.pend + a.pendingDelivery }), { billed: 0, paid: 0, toPay: 0, pend: 0 });
+          return (
+            <div className="tablewrap"><table>
+              <thead><tr><th>Vendor</th><th className="r">Billed</th><th className="r">Paid</th><th className="r">Pending to pay</th><th className="r">Goods pending from vendor</th><th>Status</th></tr></thead>
+              <tbody>{rows.map(({ v, a }) => (
+                <tr key={v.id}><td>{v.name}</td><td className="r">{inr(a.billed)}</td><td className="r">{inr(a.paid)}</td><td className={'r' + (a.toPay ? ' bad' : '')}>{inr(a.toPay)}</td><td className="r">{inr(a.pendingDelivery)}</td>
+                  <td>{a.toPay === 0 ? <span className="ok">{a.billed ? 'Paid up' : a.paid ? 'Advance paid' : '—'}</span> : a.paid > 0 ? <span className="bad">Part paid</span> : <span className="bad">Unpaid</span>}</td></tr>
+              ))}
+              <tr className="tot"><td>Total</td><td className="r">{inr(tot.billed)}</td><td className="r">{inr(tot.paid)}</td><td className="r">{inr(tot.toPay)}</td><td className="r">{inr(tot.pend)}</td><td></td></tr></tbody>
+            </table></div>
+          );
+        })()}
+      </Card>
 
       <Card title="Advance payment requests">
         {advReq.length === 0 ? <Empty>No advance requests.</Empty> : (

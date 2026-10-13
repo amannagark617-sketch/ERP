@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { actions, fetchHistory, uploadFile, useAuth, useStore } from '../store';
 import { downloadPdf, makePoPdf } from '../pdf/makePo';
 import {
-  advancePaid, displayStatus, invoicesOf, isDelayed, itemName, lineName, outstanding, paidTotal, pendingQty, poValue,
+  advancePaid, displayStatus, invoicesOf, isDelayed, itemName, lineName, outstanding, paidTotal, pendingQty, pendingValue, poValue,
   receiptBalance, receiptPaid, receivedQty, receivedValue, vendorOf,
 } from '../domain';
 import { Badge, Card, Empty, FileLink, Link, PayForm, Stat, go, run } from '../ui';
@@ -67,18 +67,18 @@ export default function PoDetail({ id }: { id: string }) {
 
       <Card title="Items">
         <div className="tablewrap"><table>
-          <thead><tr><th>Item</th><th>Brand</th><th className="r">Price</th><th className="r">PO qty</th><th className="r">Received</th><th className="r">Pending</th><th className="r">Amount</th></tr></thead>
+          <thead><tr><th>Item</th><th>Brand</th><th className="r">Price</th><th className="r">PO qty</th><th className="r">Received</th><th className="r">Pending</th><th className="r">Amount</th><th className="r">Pending value</th></tr></thead>
           <tbody>{po.lines.map(l => (
             <tr key={l.itemId + '|' + l.brand}><td>{itemName(s, l.itemId)}</td><td>{l.brand || <span className="mut">—</span>}</td><td className="r">{inr(l.price)}</td><td className="r">{l.qty}</td>
-              <td className="r">{receivedQty(s, po.id, l.itemId, l.brand)}</td><td className="r">{pendingQty(s, po, l)}</td><td className="r">{inr(l.qty * l.price)}</td></tr>
-          ))}<tr className="tot"><td colSpan={6} className="r">PO value (before tax)</td><td className="r">{inr(poValue(po))}</td></tr></tbody>
+              <td className="r">{receivedQty(s, po.id, l.itemId, l.brand)}</td><td className={'r' + (sent && pendingQty(s, po, l) > 0 ? ' bad' : '')}>{pendingQty(s, po, l)}</td><td className="r">{inr(l.qty * l.price)}</td><td className="r">{pendingQty(s, po, l) > 0 ? inr(pendingQty(s, po, l) * l.price) : '—'}</td></tr>
+          ))}<tr className="tot"><td colSpan={6} className="r">PO value (before tax) · still pending from vendor</td><td className="r">{inr(poValue(po))}</td><td className="r">{sent ? inr(pendingValue(s, po)) : '—'}</td></tr></tbody>
         </table></div>
       </Card>
 
       {money && <Card title="Payment tracking">
         <div className="grid">
           <Stat label="PO value" value={inr(poValue(po))} />
-          <Stat label="Received (as per invoices)" value={inr(receivedValue(s, po.id))} />
+          <Stat label="Received (as per invoices)" value={inr(receivedValue(s, po.id))} sub={sent && pendingTotal > 0 ? `${pendingTotal} unit(s) still pending · ${inr(pendingValue(s, po))} before tax` : undefined} />
           <Stat label="Already paid" value={inr(paidTotal(s, po.id))} sub={`of which advance ${inr(advancePaid(s, po.id))}`} />
           <Stat label="Outstanding payable" value={inr(outstanding(s, po.id))} tone={outstanding(s, po.id) ? 'amber' : 'green'} />
         </div>

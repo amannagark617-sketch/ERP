@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useAuth, useStore } from '../store';
-import { displayStatus, isDelayed, isOpenPO, outstanding, poValue, totalPending, vendorOf } from '../domain';
+import { displayStatus, isDelayed, isOpenPO, outstanding, payStatus, pendingValue, poValue, totalPending, vendorOf } from '../domain';
 import { Badge, Card, Empty, Link, QuickApprove } from '../ui';
 import { fmtDate, inr } from '../utils';
 
@@ -31,14 +31,14 @@ export default function PoList() {
       <Card>
         {rows.length === 0 ? <Empty>No purchase orders here.</Empty> : (
           <div className="tablewrap"><table>
-            <thead><tr><th>PO</th><th>Date</th><th>Vendor</th><th>Dept</th><th className="r">Value</th><th>Expected</th><th className="r">Pending qty</th><th>Status</th>{sees('Accounts') && <th className="r">Outstanding</th>}{rows.some(mine) && <th>Your approval</th>}</tr></thead>
+            <thead><tr><th>PO</th><th>Date</th><th>Vendor</th><th>Dept</th><th className="r">Value</th><th>Expected</th><th className="r">Pending qty</th><th className="r">Pending value</th><th>Status</th>{sees('Accounts') && <><th>Payment</th><th className="r">Outstanding</th></>}{rows.some(mine) && <th>Your approval</th>}</tr></thead>
             <tbody>{rows.map(p => (
               <tr key={p.id} className={isDelayed(s, p) ? 'hl' : ''}>
                 <td><Link to={`/pos/${p.id}`}>{p.poNo}</Link></td><td>{fmtDate(p.date)}</td><td>{vendorOf(s, p.vendorId)?.name}</td><td>{p.department}</td>
                 <td className="r">{inr(poValue(p))}</td><td>{fmtDate(p.expectedDate)}</td>
-                <td className="r">{p.status === 'Sent to Vendor' ? totalPending(s, p) : '—'}</td>
+                <td className="r">{p.status === 'Sent to Vendor' ? totalPending(s, p) : '—'}</td><td className="r">{p.status === 'Sent to Vendor' && totalPending(s, p) > 0 ? inr(pendingValue(s, p)) : '—'}</td>
                 <td><Badge>{displayStatus(s, p)}</Badge> {isDelayed(s, p) && <Badge>Delay</Badge>}</td>
-                {sees('Accounts') && <td className="r">{inr(outstanding(s, p.id))}</td>}
+                {sees('Accounts') && <><td>{(p.status === 'Sent to Vendor' || p.advanceStatus === 'Advance Paid' || p.advanceStatus === 'Fully Paid') ? <span className={payStatus(s, p).tone}>{payStatus(s, p).label}</span> : <span className="mut">—</span>}</td><td className="r">{inr(outstanding(s, p.id))}</td></>}
                 {rows.some(mine) && <td><QuickApprove po={p} /></td>}
               </tr>
             ))}</tbody>

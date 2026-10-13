@@ -8,7 +8,7 @@ import { sha256 } from './sha256';
 import { configSeed } from './seed';
 import { approversOf, routeFor } from './approval';
 import { lineKey, normBrand, sameBrand, stockKey } from './keys';
-import { DEFAULT_SCREENS, parseScreens } from './screens';
+import { DEFAULT_SCREENS, PREVIOUS_DEFAULT_SCREENS, parseScreens } from './screens';
 import { SAMPLE_USER_PREFIX, sampleData, sampleUsers } from './sample';
 
 export interface Host {
@@ -91,6 +91,8 @@ class Db {
     if (i >= 0) { this.host.update(d.sheet, rows[i].__row, toSheet(d, e)); rows[i] = { ...e, __row: rows[i].__row }; }
     else rows.push({ ...e, __row: this.host.append(d.sheet, toSheet(d, e)) });
   }
+  /** Add a brand-new row WITHOUT reading the table first (the Log is append-only and by far the biggest tab). */
+  append(k: TableKey, e: any) { this.host.append(def(k).sheet, toSheet(def(k), e)); }
   /** Rewrite a row that is already loaded (used to repair rows typed by hand). */
   touch(k: TableKey, row: any) { this.host.update(def(k).sheet, row.__row, toSheet(def(k), row)); }
 }
@@ -566,7 +568,7 @@ function commit(host: Host, db: Db, user: User, name: string, rawOps: any[], not
   }
   const poRef = ops.map(o => (o.row ? (o.table === 'pos' ? o.row.id : o.row.poId) : '')).filter(Boolean)[0] || '';
   const detail = ops.map(o => `${o.t} ${o.table}:${o.t === 'upsert' ? o.row[def(o.table).id] : o.id}`).join('; ').slice(0, 1500);
-  db.put('log', { id: host.uuid(), time: now, user: user.name, role: user.role, action: name, event: String(note || '').slice(0, 300), ref: poRef, detail });
+  db.append('log', { id: host.uuid(), time: now, user: user.name, role: user.role, action: name, event: String(note || '').slice(0, 300), ref: poRef, detail });
   host.bumpStamp();
   return { applied, deleted, stamp: host.stamp() };
 }
@@ -642,7 +644,7 @@ export function handle(host: Host, req: any): any {
       case 'users.save': return host.withLock(() => {
         const d = fresh();
         const u = authenticate(host, d, req.token); need(u, 'users.manage'); usersSave(d, req);
-        d.put('log', { id: host.uuid(), time: host.now(), user: u.name, role: u.role, action: 'users.save', event: '', ref: '', detail: 'user ' + String(req.user?.loginId) });
+        d.append('log', { id: host.uuid(), time: host.now(), user: u.name, role: u.role, action: 'users.save', event: '', ref: '', detail: 'user ' + String(req.user?.loginId) });
         host.bumpStamp();
         return { ok: true, ...usersList(d) };
       });
@@ -708,7 +710,10 @@ function fillDefaultScreens(host: Host) {
   const db = new Db(host);
   for (const r of db.rows('roles')) {
     const def_ = DEFAULT_SCREENS[String(r.role).trim()];
-    if (def_ && !String(r.screens ?? '').trim()) db.touch('roles', { ...r, screens: def_.join(', ') });
+    const cell = String(r.screens ?? '').trim();
+    const norm = (xs: string[]) => xs.map(x => x.trim().toLowerCase()).sort().join('|');
+    const wasStarting = (PREVIOUS_DEFAULT_SCREENS[String(r.role).trim()] ?? []).some(old => norm(old) === norm(cell.split(/[,;|]/)));
+    if (def_ && (!cell || wasStarting)) db.touch('roles', { ...r, screens: def_.join(', ') });
   }
 }
 

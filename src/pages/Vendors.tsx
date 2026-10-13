@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { actions, useAuth, useStore } from '../store';
-import { itemName, knownBrands } from '../domain';
+import { itemName, knownBrands, vendorAccount } from '../domain';
 import { normBrand, sameBrand } from '../shared/keys';
-import { Badge, Card, Empty, Field, run } from '../ui';
+import { Badge, Card, Empty, Field, Stat, run } from '../ui';
 import { inr } from '../utils';
 import { Vendor } from '../types';
 
@@ -14,7 +14,7 @@ const blank: Draft = {
 
 export default function Vendors() {
   const s = useStore();
-  const { can } = useAuth();
+  const { can, sees } = useAuth();
   const ho = can('master.manage');
   const showBank = can('payment.make') || can('master.manage'); // bank details are for Accounts and Admin only
   const [editing, setEditing] = useState<Draft | null>(null);
@@ -46,6 +46,7 @@ export default function Vendors() {
               {showBank && <><br />Bank {v.bankName || '—'} · A/c {v.accountNo || '—'} · IFSC {v.ifsc || '—'}</>}
             </p>
           </div>
+          {sees('Accounts') && <VendorMoney id={v.id} />}
           {v.items.length === 0 ? <Empty>No items on this vendor's price list.</Empty> : (
             <table style={{ maxWidth: 560 }}><thead><tr><th>Item</th><th>Brand</th><th className="r">Agreed price</th></tr></thead>
               <tbody>{v.items.map(i => <tr key={i.itemId + '|' + i.brand}><td>{itemName(s, i.itemId)}</td><td>{i.brand || <span className="mut">—</span>}</td><td className="r">{inr(i.price)}</td></tr>)}</tbody></table>
@@ -54,6 +55,21 @@ export default function Vendors() {
       ))}
       {list.length === 0 && <Empty>No vendors found.</Empty>}
     </>
+  );
+}
+
+/** Paid / pending summary for one vendor. */
+function VendorMoney({ id }: { id: string }) {
+  const s = useStore();
+  const a = vendorAccount(s, id);
+  if (!a.billed && !a.paid && !a.pendingDelivery) return null;
+  return (
+    <div className="grid" style={{ marginBottom: 10 }}>
+      <Stat label="Billed (invoices)" value={inr(a.billed)} />
+      <Stat label="Paid" value={inr(a.paid)} tone="green" />
+      <Stat label="Pending to pay" value={inr(a.toPay)} tone={a.toPay ? 'amber' : 'green'} sub={a.advanceHeld ? `advance ${inr(a.advanceHeld)} not yet adjusted` : undefined} />
+      <Stat label="Goods pending from vendor" value={inr(a.pendingDelivery)} tone={a.pendingDelivery ? 'amber' : ''} sub="open POs, before tax" />
+    </div>
   );
 }
 

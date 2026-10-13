@@ -33,6 +33,7 @@ var host = {
   uuid: function () { return Utilities.getUuid(); },
 
   ensureSheet: function (name, headers, textHeaders, color) {
+    host._forget();
     var ss = _ss();
     var sh = ss.getSheetByName(name);
     if (!sh) { sh = ss.insertSheet(name); sh.setFrozenRows(1); }
@@ -53,12 +54,29 @@ var host = {
     });
   },
 
+  // Every call into SpreadsheetApp is a slow round trip, so within ONE request we remember sheet objects, header rows and row counts.
+  _sh: function (name) {
+    var c = host._shCache || (host._shCache = {});
+    return c[name] || (c[name] = _ss().getSheetByName(name));
+  },
+  _hdr: function (name) {
+    var c = host._hdrCache || (host._hdrCache = {});
+    if (c[name]) return c[name];
+    var sh = host._sh(name);
+    var w = sh.getLastColumn();
+    return (c[name] = w < 1 ? [] : sh.getRange(1, 1, 1, w).getValues()[0].map(String));
+  },
+  _forget: function () { host._shCache = {}; host._hdrCache = {}; host._lastRow = {}; },
+
   read: function (name) {
-    var sh = _ss().getSheetByName(name);
-    if (!sh || sh.getLastRow() < 1) return [];
-    var tz = _ss().getSpreadsheetTimeZone();
+    var sh = host._sh(name);
+    if (!sh) return [];
+    var tz = host._tz || (host._tz = _ss().getSpreadsheetTimeZone());
     var vals = sh.getDataRange().getValues();
+    if (vals.length < 1 || (vals.length === 1 && vals[0].every(function (x) { return x === ''; }))) return [];
     var headers = vals[0].map(String);
+    host._hdrCache = host._hdrCache || {}; host._hdrCache[name] = headers;
+    (host._lastRow = host._lastRow || {})[name] = vals.length;
     var out = [];
     for (var i = 1; i < vals.length; i++) {
       var empty = true, o = { __row: i + 1 };
@@ -73,23 +91,25 @@ var host = {
     return out;
   },
 
-  _write: function (sh, rowIdx, row) {
-    var width = sh.getLastColumn();
-    var headers = sh.getRange(1, 1, 1, width).getValues()[0].map(String);
-    var range = sh.getRange(rowIdx, 1, 1, width);
-    var cur = range.getValues()[0];
+  // New row: ONE call (headers are remembered). Existing row: read it, change the known columns, write it back (two calls).
+  _write: function (name, rowIdx, row, isNew) {
+    var sh = host._sh(name), headers = host._hdr(name);
+    var cur = isNew ? headers.map(function () { return ''; }) : sh.getRange(rowIdx, 1, 1, headers.length).getValues()[0];
     headers.forEach(function (h, j) { if (h && Object.prototype.hasOwnProperty.call(row, h)) cur[j] = row[h]; });
-    range.setValues([cur]);
+    sh.getRange(rowIdx, 1, 1, headers.length).setValues([cur]);
   },
   append: function (name, row) {
-    var sh = _ss().getSheetByName(name);
-    var idx = Math.max(sh.getLastRow(), 1) + 1;
-    host._write(sh, idx, row);
+    var sh = host._sh(name);
+    var lr = (host._lastRow = host._lastRow || {});
+    if (lr[name] === undefined) lr[name] = Math.max(sh.getLastRow(), 1);
+    var idx = ++lr[name];
+    host._write(name, idx, row, true);
     return idx;
   },
-  update: function (name, idx, row) { host._write(_ss().getSheetByName(name), idx, row); },
-  remove: function (name, idx) { _ss().getSheetByName(name).deleteRow(idx); },
+  update: function (name, idx, row) { host._write(name, idx, row, false); },
+  remove: function (name, idx) { host._sh(name).deleteRow(idx); host._forget(); },
   renameHeader: function (name, from, to) {
+    host._forget();
     var sh = _ss().getSheetByName(name);
     if (!sh || sh.getLastColumn() < 1) return;
     var hdr = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(String);
@@ -135,6 +155,7 @@ var host = {
 function _json(o) { return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }
 
 function doPost(e) {
+  host._forget();
   var req;
   try { req = JSON.parse(e.postData.contents); } catch (err) { return _json({ ok: false, error: 'Bad request' }); }
   return _json(Core.handle(host, req));
@@ -143,6 +164,7 @@ function doGet() { return _json({ ok: true, app: 'Little Nap ERP API', hint: 'Us
 
 /** Run this ONCE from the editor. Safe to run again later (adds missing tabs/columns, never overwrites data). */
 function setup() {
+  host._forget();
   var msg = Core.setup(host);
   var ss = _ss();
   var s1 = ss.getSheetByName('Sheet1'); // tidy: remove the empty default tab
@@ -695,10 +717,15 @@ var Core = (() => {
   var ALL_SCREENS = ["Dashboard", "Purchase Orders", "Goods Receipt", "Stock", "Accounts", "Vendors", "Items & Prices", "Users & Access"];
   var DEFAULT_SCREENS = {
     Admin: ALL_SCREENS,
-    "Factory Head": ["Dashboard", "Purchase Orders", "Stock"],
-    Purchase: ["Dashboard", "Purchase Orders", "Stock", "Vendors", "Items & Prices"],
-    Accounts: ["Dashboard", "Purchase Orders", "Accounts", "Vendors"],
+    "Factory Head": ["Dashboard", "Purchase Orders", "Stock", "Accounts"],
+    Purchase: ["Dashboard", "Purchase Orders", "Stock", "Accounts", "Vendors", "Items & Prices"],
+    Accounts: ["Dashboard", "Purchase Orders", "Stock", "Accounts", "Vendors"],
     Inventory: ["Dashboard", "Purchase Orders", "Goods Receipt", "Stock"]
+  };
+  var PREVIOUS_DEFAULT_SCREENS = {
+    "Factory Head": [["Dashboard", "Purchase Orders", "Stock"]],
+    Purchase: [["Dashboard", "Purchase Orders", "Stock", "Vendors", "Items & Prices"]],
+    Accounts: [["Dashboard", "Purchase Orders", "Accounts", "Vendors"]]
   };
   var FALLBACK_SCREENS = ["Dashboard", "Purchase Orders"];
   function parseScreens(cell, roleName, level, adminLevel) {
@@ -1232,6 +1259,10 @@ var Core = (() => {
         this.host.update(d.sheet, rows[i].__row, toSheet(d, e));
         rows[i] = { ...e, __row: rows[i].__row };
       } else rows.push({ ...e, __row: this.host.append(d.sheet, toSheet(d, e)) });
+    }
+    /** Add a brand-new row WITHOUT reading the table first (the Log is append-only and by far the biggest tab). */
+    append(k, e) {
+      this.host.append(def(k).sheet, toSheet(def(k), e));
     }
     /** Rewrite a row that is already loaded (used to repair rows typed by hand). */
     touch(k, row) {
@@ -1767,7 +1798,7 @@ var Core = (() => {
     }
     const poRef = ops.map((o) => o.row ? o.table === "pos" ? o.row.id : o.row.poId : "").filter(Boolean)[0] || "";
     const detail = ops.map((o) => `${o.t} ${o.table}:${o.t === "upsert" ? o.row[def(o.table).id] : o.id}`).join("; ").slice(0, 1500);
-    db.put("log", { id: host.uuid(), time: now, user: user.name, role: user.role, action: name, event: String(note || "").slice(0, 300), ref: poRef, detail });
+    db.append("log", { id: host.uuid(), time: now, user: user.name, role: user.role, action: name, event: String(note || "").slice(0, 300), ref: poRef, detail });
     host.bumpStamp();
     return { applied, deleted, stamp: host.stamp() };
   }
@@ -1880,7 +1911,7 @@ var Core = (() => {
             const u = authenticate(host, d, req.token);
             need(u, "users.manage");
             usersSave(d, req);
-            d.put("log", { id: host.uuid(), time: host.now(), user: u.name, role: u.role, action: "users.save", event: "", ref: "", detail: "user " + String((_a = req.user) == null ? void 0 : _a.loginId) });
+            d.append("log", { id: host.uuid(), time: host.now(), user: u.name, role: u.role, action: "users.save", event: "", ref: "", detail: "user " + String((_a = req.user) == null ? void 0 : _a.loginId) });
             host.bumpStamp();
             return { ok: true, ...usersList(d) };
           });
@@ -1926,11 +1957,14 @@ var Core = (() => {
     old.sort((a, b) => b.__row - a.__row).forEach((r) => host.remove(def("roles").sheet, r.__row));
   }
   function fillDefaultScreens(host) {
-    var _a;
+    var _a, _b;
     const db = new Db(host);
     for (const r of db.rows("roles")) {
       const def_ = DEFAULT_SCREENS[String(r.role).trim()];
-      if (def_ && !String((_a = r.screens) != null ? _a : "").trim()) db.touch("roles", { ...r, screens: def_.join(", ") });
+      const cell = String((_a = r.screens) != null ? _a : "").trim();
+      const norm = (xs) => xs.map((x) => x.trim().toLowerCase()).sort().join("|");
+      const wasStarting = ((_b = PREVIOUS_DEFAULT_SCREENS[String(r.role).trim()]) != null ? _b : []).some((old) => norm(old) === norm(cell.split(/[,;|]/)));
+      if (def_ && (!cell || wasStarting)) db.touch("roles", { ...r, screens: def_.join(", ") });
     }
   }
   function standardiseDates(host) {

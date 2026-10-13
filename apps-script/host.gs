@@ -32,6 +32,7 @@ var host = {
   uuid: function () { return Utilities.getUuid(); },
 
   ensureSheet: function (name, headers, textHeaders, color) {
+    host._forget();
     var ss = _ss();
     var sh = ss.getSheetByName(name);
     if (!sh) { sh = ss.insertSheet(name); sh.setFrozenRows(1); }
@@ -52,12 +53,29 @@ var host = {
     });
   },
 
+  // Every call into SpreadsheetApp is a slow round trip, so within ONE request we remember sheet objects, header rows and row counts.
+  _sh: function (name) {
+    var c = host._shCache || (host._shCache = {});
+    return c[name] || (c[name] = _ss().getSheetByName(name));
+  },
+  _hdr: function (name) {
+    var c = host._hdrCache || (host._hdrCache = {});
+    if (c[name]) return c[name];
+    var sh = host._sh(name);
+    var w = sh.getLastColumn();
+    return (c[name] = w < 1 ? [] : sh.getRange(1, 1, 1, w).getValues()[0].map(String));
+  },
+  _forget: function () { host._shCache = {}; host._hdrCache = {}; host._lastRow = {}; },
+
   read: function (name) {
-    var sh = _ss().getSheetByName(name);
-    if (!sh || sh.getLastRow() < 1) return [];
-    var tz = _ss().getSpreadsheetTimeZone();
+    var sh = host._sh(name);
+    if (!sh) return [];
+    var tz = host._tz || (host._tz = _ss().getSpreadsheetTimeZone());
     var vals = sh.getDataRange().getValues();
+    if (vals.length < 1 || (vals.length === 1 && vals[0].every(function (x) { return x === ''; }))) return [];
     var headers = vals[0].map(String);
+    host._hdrCache = host._hdrCache || {}; host._hdrCache[name] = headers;
+    (host._lastRow = host._lastRow || {})[name] = vals.length;
     var out = [];
     for (var i = 1; i < vals.length; i++) {
       var empty = true, o = { __row: i + 1 };
@@ -72,23 +90,25 @@ var host = {
     return out;
   },
 
-  _write: function (sh, rowIdx, row) {
-    var width = sh.getLastColumn();
-    var headers = sh.getRange(1, 1, 1, width).getValues()[0].map(String);
-    var range = sh.getRange(rowIdx, 1, 1, width);
-    var cur = range.getValues()[0];
+  // New row: ONE call (headers are remembered). Existing row: read it, change the known columns, write it back (two calls).
+  _write: function (name, rowIdx, row, isNew) {
+    var sh = host._sh(name), headers = host._hdr(name);
+    var cur = isNew ? headers.map(function () { return ''; }) : sh.getRange(rowIdx, 1, 1, headers.length).getValues()[0];
     headers.forEach(function (h, j) { if (h && Object.prototype.hasOwnProperty.call(row, h)) cur[j] = row[h]; });
-    range.setValues([cur]);
+    sh.getRange(rowIdx, 1, 1, headers.length).setValues([cur]);
   },
   append: function (name, row) {
-    var sh = _ss().getSheetByName(name);
-    var idx = Math.max(sh.getLastRow(), 1) + 1;
-    host._write(sh, idx, row);
+    var sh = host._sh(name);
+    var lr = (host._lastRow = host._lastRow || {});
+    if (lr[name] === undefined) lr[name] = Math.max(sh.getLastRow(), 1);
+    var idx = ++lr[name];
+    host._write(name, idx, row, true);
     return idx;
   },
-  update: function (name, idx, row) { host._write(_ss().getSheetByName(name), idx, row); },
-  remove: function (name, idx) { _ss().getSheetByName(name).deleteRow(idx); },
+  update: function (name, idx, row) { host._write(name, idx, row, false); },
+  remove: function (name, idx) { host._sh(name).deleteRow(idx); host._forget(); },
   renameHeader: function (name, from, to) {
+    host._forget();
     var sh = _ss().getSheetByName(name);
     if (!sh || sh.getLastColumn() < 1) return;
     var hdr = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(String);
@@ -134,6 +154,7 @@ var host = {
 function _json(o) { return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }
 
 function doPost(e) {
+  host._forget();
   var req;
   try { req = JSON.parse(e.postData.contents); } catch (err) { return _json({ ok: false, error: 'Bad request' }); }
   return _json(Core.handle(host, req));
@@ -142,6 +163,7 @@ function doGet() { return _json({ ok: true, app: 'Little Nap ERP API', hint: 'Us
 
 /** Run this ONCE from the editor. Safe to run again later (adds missing tabs/columns, never overwrites data). */
 function setup() {
+  host._forget();
   var msg = Core.setup(host);
   var ss = _ss();
   var s1 = ss.getSheetByName('Sheet1'); // tidy: remove the empty default tab

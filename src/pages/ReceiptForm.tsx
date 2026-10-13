@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { actions, uploadFile, useAuth, useStore } from '../store';
 import { advanceAvailable, computeReceipt, itemName, lineName, pendingQty, receivedQty, sameLine, vendorOf } from '../domain';
+import { round2 } from '../utils';
 import { Card, DateInput, Field, FileInput, Link, go, run } from '../ui';
 import { cfg } from '../config';
 import { inr, today } from '../utils';
@@ -19,7 +20,7 @@ export default function ReceiptForm({ poId }: { poId: string }) {
   const [invoiceTotal, setInvoiceTotal] = useState(0);
   const [mismatch, setMismatch] = useState(false);
   const [rows, setRows] = useState<Row[]>(() =>
-    (po?.lines ?? []).map(l => ({ itemId: l.itemId, brand: l.brand, selected: false, qty: pendingQty(s, po!, l), poQty: l.qty, tax: cfg.taxRates.includes(18) ? 18 : cfg.taxRates[0] })));
+    (po?.lines ?? []).map(l => ({ itemId: l.itemId, brand: l.brand, selected: pendingQty(s, po!, l) > 0, qty: pendingQty(s, po!, l), poQty: l.qty, tax: cfg.taxRates.includes(18) ? 18 : cfg.taxRates[0] })));
   const [queryNote, setQueryNote] = useState('');
 
   if (!po) return <p>PO not found.</p>;
@@ -32,15 +33,22 @@ export default function ReceiptForm({ poId }: { poId: string }) {
   const picked = rows.filter(r => r.selected && r.qty > 0);
   const totals = computeReceipt(picked.map(r => ({ qty: r.qty, price: price(r), taxRate: r.tax })));
   const advance = Math.min(totals.grandTotal, advanceAvailable(s, po.id));
-  const diff = Math.round((totals.grandTotal - invoiceTotal) * 100) / 100;
+  const invTotal = invoiceTotal > 0 ? invoiceTotal : totals.grandTotal; // blank = same as the system total
+  const diff = Math.round((totals.grandTotal - invTotal) * 100) / 100;
+  const pendingNow = (r: Row) => Math.max(0, r.poQty - receivedQty(s, po.id, r.itemId, r.brand));
+  const after = (r: Row) => Math.max(0, round2(pendingNow(r) - (r.selected ? r.qty : 0)));
+  const stillQty = rows.reduce((a, r) => a + after(r), 0);
+  const stillValue = round2(rows.reduce((a, r) => a + after(r) * price(r), 0));
   const matches = Math.abs(diff) <= cfg.tolerance;
 
   const submit = async () => {
+    const over = picked.find(r => !mismatch && r.qty > pendingNow(r));
+    if (over) { alert(`${lineName(s, over)}: you entered more than the pending quantity (${pendingNow(over)})`); return; }
     setSaving(true);
     const ok = await run(async () => {
       const invoiceFile = await uploadFile(file, po.poNo);
       await actions.createReceipt({
-        poId: po.id, invoiceNo, invoiceDate, receivedDate, invoiceTotal, invoiceFile,
+        poId: po.id, invoiceNo, invoiceDate, receivedDate, invoiceTotal: invTotal, invoiceFile,
         lines: picked.map(r => ({ itemId: r.itemId, brand: r.brand, qty: r.qty, taxRate: r.tax, poQty: mismatch ? r.poQty : undefined })),
       });
     });
@@ -55,29 +63,35 @@ export default function ReceiptForm({ poId }: { poId: string }) {
   return (
     <>
       <div className="row" style={{ justifyContent: 'space-between' }}><h2>Receive goods – {po.poNo}</h2><Link to="/receipts">← Back</Link></div>
-      <p className="mut">{vendor.name}</p>
+      <p className="mut">{vendor.name} · All items of this PO are loaded below. Type the quantity you actually received; anything short stays <b>pending with the vendor</b> and the PO stays open for the balance.</p>
       <Card title="Invoice details">
         <div className="form2">
           <Field label="Invoice number"><input value={invoiceNo} onChange={e => setInvoiceNo(e.target.value)} /></Field>
           <Field label="Invoice date"><DateInput value={invoiceDate} onChange={setInvoiceDate} /></Field>
           <Field label="Received date (Factory In)"><DateInput value={receivedDate} onChange={setReceivedDate} /></Field>
-          <Field label="Invoice grand total (as printed)"><input type="number" min={0} step="0.01" value={invoiceTotal || ''} onChange={e => setInvoiceTotal(+e.target.value)} /></Field>
+          <Field label="Invoice grand total (as printed)" hint="Leave blank if it is the same as the system total below"><input type="number" min={0} step="0.01" value={invoiceTotal || ''} onChange={e => setInvoiceTotal(+e.target.value)} /></Field>
           <FileInput onChange={setFile} label="Invoice copy (optional, saved to Google Drive)" />
         </div>
       </Card>
       <Card title="Items received" actions={
-        <label className="row"><input type="checkbox" checked={mismatch} onChange={e => setMismatch(e.target.checked)} /> PO and invoice do not match (allows editing PO quantity)</label>}>
+        <span className="row">
+          <button className="btn sm" onClick={() => setRows(rows.map(r => ({ ...r, selected: pendingNow(r) > 0, qty: pendingNow(r) })))}>Receive everything pending</button>
+          <button className="btn sm" onClick={() => setRows(rows.map(r => ({ ...r, selected: false, qty: 0 })))}>Clear</button>
+          <label className="row"><input type="checkbox" checked={mismatch} onChange={e => setMismatch(e.target.checked)} /> PO and invoice do not match (allows editing PO quantity)</label>
+        </span>}>
         <div className="tablewrap"><table>
-          <thead><tr><th></th><th>Item</th><th>Brand</th><th className="r">Price (locked)</th><th className="r">PO qty</th><th className="r">Already received</th><th className="r">Received now</th><th>Tax</th><th className="r">Amount</th></tr></thead>
+          <thead><tr><th></th><th>Item</th><th>Brand</th><th className="r">Price (locked)</th><th className="r">Ordered</th><th className="r">Received before</th><th className="r">Pending</th><th className="r">Received now</th><th className="r">Still pending after</th><th>Tax</th><th className="r">Amount (received)</th></tr></thead>
           <tbody>{rows.map((r, i) => (
-            <tr key={r.itemId + '|' + r.brand}>
-              <td><input type="checkbox" checked={r.selected} onChange={e => set(i, { selected: e.target.checked })} /></td>
+            <tr key={r.itemId + '|' + r.brand} className={pendingNow(r) === 0 ? 'sub' : ''}>
+              <td><input type="checkbox" checked={r.selected} disabled={pendingNow(r) === 0 && !mismatch} onChange={e => set(i, { selected: e.target.checked })} /></td>
               <td>{itemName(s, r.itemId)}</td>
               <td>{r.brand || <span className="mut">—</span>}</td>
               <td className="r">{inr(price(r))}</td>
               <td className="r">{mismatch ? <input type="number" min={0} style={{ width: 80 }} value={r.poQty} onChange={e => set(i, { poQty: +e.target.value })} /> : r.poQty}</td>
               <td className="r">{receivedQty(s, po.id, r.itemId, r.brand)}</td>
-              <td className="r"><input type="number" min={0} style={{ width: 80 }} value={r.qty} disabled={!r.selected} onChange={e => set(i, { qty: +e.target.value })} /></td>
+              <td className="r">{pendingNow(r)}</td>
+              <td className="r"><input type="number" min={0} max={mismatch ? undefined : pendingNow(r)} style={{ width: 80 }} value={r.qty} disabled={!r.selected} onChange={e => set(i, { qty: Math.max(0, +e.target.value) })} /></td>
+              <td className={'r' + (after(r) > 0 ? ' bad' : '')}>{pendingNow(r) === 0 ? <span className="ok">complete</span> : after(r) > 0 ? <b>{after(r)} <span className="mut">· {inr(after(r) * price(r))}</span></b> : <span className="ok">0</span>}</td>
               <td><select value={r.tax} disabled={!r.selected} onChange={e => set(i, { tax: +e.target.value })}>{cfg.taxRates.map(x => <option key={x} value={x}>{x === 0 ? '0% (Nil)' : x + '%'}</option>)}</select></td>
               <td className="r">{r.selected ? inr(r.qty * price(r)) : '—'}</td>
             </tr>
@@ -101,6 +115,11 @@ export default function ReceiptForm({ poId }: { poId: string }) {
           <tr><td>Less: advance already paid</td><td className="r">− {inr(advance)}</td></tr>
           <tr className="tot"><td>Balance payable to Accounts</td><td className="r">{inr(totals.grandTotal - advance)}</td></tr>
         </tbody></table>
+        <div className={stillQty > 0 ? 'warn' : 'note'} style={{ marginTop: 12 }}>
+          {stillQty > 0
+            ? <>After this receipt <b>{stillQty}</b> unit(s) are still <b>pending from {vendor.name}</b>, worth <b>{inr(stillValue)}</b> (before tax). The PO stays open for them. You will only owe the vendor for what was received now.</>
+            : <>Everything on this PO will be received – the PO will be complete.</>}
+        </div>
         {invoiceTotal > 0 && (matches
           ? <p className="ok">✓ Matches the invoice total.</p>
           : <p className="bad">Does not match the invoice by {inr(Math.abs(diff))}. Fix quantity / tax, edit the PO quantity if the invoice differs, or refer a price difference to the Admin.</p>)}

@@ -3,10 +3,16 @@ export const ALL_SCREENS = ['Dashboard', 'Purchase Orders', 'Goods Receipt', 'St
 
 export const DEFAULT_SCREENS: Record<string, string[]> = {
   Admin: ALL_SCREENS,
-  'Factory Head': ['Dashboard', 'Purchase Orders', 'Stock'],
-  Purchase: ['Dashboard', 'Purchase Orders', 'Stock', 'Vendors', 'Items & Prices'],
-  Accounts: ['Dashboard', 'Purchase Orders', 'Accounts', 'Vendors'],
+  'Factory Head': ['Dashboard', 'Purchase Orders', 'Stock', 'Accounts'],
+  Purchase: ['Dashboard', 'Purchase Orders', 'Stock', 'Accounts', 'Vendors', 'Items & Prices'],
+  Accounts: ['Dashboard', 'Purchase Orders', 'Stock', 'Accounts', 'Vendors'],
   Inventory: ['Dashboard', 'Purchase Orders', 'Goods Receipt', 'Stock'],
+};
+/** Earlier starting menus: a Roles cell that still holds exactly one of these is upgraded to the new default by setup(). */
+export const PREVIOUS_DEFAULT_SCREENS: Record<string, string[][]> = {
+  'Factory Head': [['Dashboard', 'Purchase Orders', 'Stock']],
+  Purchase: [['Dashboard', 'Purchase Orders', 'Stock', 'Vendors', 'Items & Prices']],
+  Accounts: [['Dashboard', 'Purchase Orders', 'Accounts', 'Vendors']],
 };
 /** A role nobody configured gets the bare minimum. */
 export const FALLBACK_SCREENS = ['Dashboard', 'Purchase Orders'];

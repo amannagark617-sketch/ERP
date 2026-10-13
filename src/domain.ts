@@ -176,3 +176,35 @@ export function fifoValue(f: FifoResult, itemId: string, brand?: string): { qty:
   }
   return { qty: round2(qty), value: round2(value), unknown };
 }
+
+// ---------------------------------------------------------------- pending from vendors / payment status
+/** Value (before tax) of what the vendor still has to deliver on this PO. */
+export const pendingValue = (s: AppState, po: PurchaseOrder) => round2(po.lines.reduce((a, l) => a + pendingQty(s, po, l) * l.price, 0));
+
+/** Where the money for this PO stands, in plain words. */
+export function payStatus(s: AppState, po: PurchaseOrder): { label: string; tone: 'ok' | 'bad' | 'mut' } {
+  const billed = receivedValue(s, po.id), paid = paidTotal(s, po.id);
+  if (billed === 0) return paid > 0 ? { label: 'Advance paid', tone: 'ok' } : { label: 'Nothing billed', tone: 'mut' };
+  if (outstanding(s, po.id) === 0) return { label: 'Paid', tone: 'ok' };
+  return paid > 0 ? { label: 'Part paid', tone: 'bad' } : { label: 'Unpaid', tone: 'bad' };
+}
+
+/** Everything about one vendor's money and deliveries. */
+export function vendorAccount(s: AppState, vendorId: string) {
+  const rs = s.receipts.filter(r => r.vendorId === vendorId);
+  const rid = new Set(rs.map(r => r.id));
+  const pos = s.pos.filter(p => p.vendorId === vendorId);
+  const pid = new Set(pos.map(p => p.id));
+  const billed = round2(rs.reduce((a, r) => a + r.grandTotal, 0));
+  const paid = round2(s.payments.filter(p => (p.receiptId ? rid.has(p.receiptId) : pid.has(p.poId ?? ''))).reduce((a, p) => a + p.amount, 0));
+  return {
+    billed, paid, toPay: Math.max(0, round2(billed - paid)), advanceHeld: Math.max(0, round2(paid - billed)),
+    pendingDelivery: round2(pos.filter(p => isOpenPO(s, p)).reduce((a, p) => a + pendingValue(s, p), 0)),
+  };
+}
+
+/** Quantity ordered on open POs and not yet received (item, optionally one brand). */
+export function onOrder(s: AppState, itemId: string, brand?: string): number {
+  return round2(s.pos.filter(p => isOpenPO(s, p)).reduce((a, p) =>
+    a + p.lines.filter(l => l.itemId === itemId && (brand === undefined || sameBrand(l.brand, brand!))).reduce((b, l) => b + pendingQty(s, p, l), 0), 0));
+}

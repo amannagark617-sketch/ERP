@@ -175,6 +175,22 @@ Emailing/WhatsApp-ing the PDF is still a manual attach (a browser can't attach f
 - **Don'ts:** don't delete or rename header cells; don't sort or filter the grey tabs in place (use a copy or a filter *view*); keep the Sheet's owner account alive.
 - If Google changes something, only `apps-script/host.gs` needs touching – the business rules are separate.
 
+## Receiving goods (partial deliveries)
+Inventory opens **Goods Receipt**, picks a PO and **all its items load automatically** (ticked, with the pending quantity filled in). They type the quantity actually received per line; anything short stays **pending with the vendor**:
+- The form shows *Ordered / Received before / Pending / Received now / Still pending after* and the ₹ value of what is still pending.
+- Only the received quantity goes into stock, and the invoice amount (and tax) is calculated on the received quantity only.
+- The PO becomes *Partially Received*, shows pending quantity **and pending value** on every line, and stays open until the balance arrives (a later receipt can complete it).
+- The invoice grand total can be left blank when it equals the system total.
+- Goods can be received once Purchase has marked the PO as sent (approved POs not yet sent are listed separately).
+
+## Who can see paid / pending
+- **PO list & PO page:** Payment status (Paid / Part paid / Unpaid), outstanding amount, pending quantity and pending value.
+- **Accounts → Vendor-wise:** Billed, Paid, Pending to pay and Goods pending from vendor for every vendor (also on each vendor card). Visible to Admin, Accounts, Factory Head and Purchase (read-only for the last two); Inventory sees quantities only, not money.
+- **Stock:** *On order (pending from vendors)* next to the stock on hand of every item and brand.
+
+## Speed
+The app is optimistic (screens update instantly, the Sheet saves in the background). On the Apps Script side each request now makes about half the Sheets calls, and the Log tab (the biggest) is no longer read on every save.
+
 ## Dates
 Every date – in the app, the PO PDF and the Google Sheet – is **DD-MMM-YYYY** (e.g. `05-Oct-2026`); timestamps (Updated At, Log time) are `05-Oct-2026 15:30:12` in Indian time. In the Sheet you may type a date in any usual way (`5/10/2026`, `05-10-2026`, `5 Oct 2026`, `2026-10-05`) – day always comes first – and it is understood and rewritten in the standard form. Running `setup` once converts all existing dates in an older Sheet.
 

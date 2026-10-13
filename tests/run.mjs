@@ -374,10 +374,10 @@ await test('default sample = only vendors, items and prices (plus demo logins); 
 console.log('role views');
 await test('each role gets its own menu (screens) from the Roles tab', () => {
   const screens = (u) => boot(u).user.screens;
-  assert.deepEqual(screens('navneet'), ['Dashboard', 'Purchase Orders', 'Stock', 'Vendors', 'Items & Prices']);
-  assert.deepEqual(screens('factoryhead'), ['Dashboard', 'Purchase Orders', 'Stock']);
+  assert.deepEqual(screens('navneet'), ['Dashboard', 'Purchase Orders', 'Stock', 'Accounts', 'Vendors', 'Items & Prices']);
+  assert.deepEqual(screens('factoryhead'), ['Dashboard', 'Purchase Orders', 'Stock', 'Accounts']);
   assert.deepEqual(screens('inventory'), ['Dashboard', 'Purchase Orders', 'Goods Receipt', 'Stock']);
-  assert.deepEqual(screens('accounts'), ['Dashboard', 'Purchase Orders', 'Accounts', 'Vendors']);
+  assert.deepEqual(screens('accounts'), ['Dashboard', 'Purchase Orders', 'Stock', 'Accounts', 'Vendors']);
   assert.deepEqual(screens('admin'), ['Dashboard', 'Purchase Orders', 'Goods Receipt', 'Stock', 'Accounts', 'Vendors', 'Items & Prices', 'Users & Access']);
 });
 await test('the menu is editable in the Roles tab: spelling is forgiven, Dashboard is always there, unknown names are ignored, All works, blank = standard menu', () => {
@@ -416,8 +416,21 @@ await test('an older sheet whose Roles rows have an empty Screens cell gets the 
   h.update('Roles', rows.find(r => r.Role === 'Accounts').__row, { [col]: 'Dashboard, Accounts' });
   M.setup(h);
   const get = (n) => h.read('Roles').find(r => r.Role === n)[col];
-  assert.equal(get('Purchase'), 'Dashboard, Purchase Orders, Stock, Vendors, Items & Prices');
+  assert.equal(get('Purchase'), 'Dashboard, Purchase Orders, Stock, Accounts, Vendors, Items & Prices');
   assert.equal(get('Accounts'), 'Dashboard, Accounts', 'your own choice is never overwritten');
+});
+
+await test('menus from the previous version are upgraded by setup(); a menu you changed yourself is left alone', () => {
+  const h = M.createMemHost();
+  M.setup(h);
+  const row = (role) => h.read('Roles').find(r => r['Role'] === role).__row;
+  const col = 'Screens this role sees (comma separated, or All)';
+  h.update('Roles', row('Factory Head'), { [col]: 'Dashboard, Purchase Orders, Stock' });          // the old starting menu
+  h.update('Roles', row('Purchase'), { [col]: 'Dashboard, Purchase Orders, Vendors' });              // someone's own choice
+  M.setup(h);
+  const get = (role) => h.read('Roles').find(r => r['Role'] === role)[col];
+  assert.equal(get('Factory Head'), 'Dashboard, Purchase Orders, Stock, Accounts');
+  assert.equal(get('Purchase'), 'Dashboard, Purchase Orders, Vendors');
 });
 
 console.log('brand');

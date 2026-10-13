@@ -6,21 +6,23 @@ import { randomUUID } from 'node:crypto';
 
 function makeEnv() {
 const grids = new Map([['Sheet1', { rows: [], color: '' }]]);
+const calls = { n: 0 };   // every call into the fake Sheets API (each is a slow network round trip on the real one)
+const C = (f) => (...a) => { calls.n++; return f(...a); };
 let uiAnswer = 'YES';
 const mkSheet = (name) => {
   const g = grids.get(name);
   if (g.obj) return g.obj; // stable identity, like the real API
   const ensure = (r, c) => { while (g.rows.length < r) g.rows.push([]); g.rows.forEach(row => { while (row.length < c) row.push(''); }); };
   const range = (r, c, nr = 1, nc = 1) => ({
-    getValues: () => { ensure(r + nr - 1, c + nc - 1); return Array.from({ length: nr }, (_, i) => g.rows[r - 1 + i].slice(c - 1, c - 1 + nc)); },
-    setValues: (v) => { ensure(r + nr - 1, c + nc - 1); v.forEach((row, i) => row.forEach((x, j) => { g.rows[r - 1 + i][c - 1 + j] = x; })); return range(r, c, nr, nc); },
+    getValues: C(() => { ensure(r + nr - 1, c + nc - 1); return Array.from({ length: nr }, (_, i) => g.rows[r - 1 + i].slice(c - 1, c - 1 + nc)); }),
+    setValues: C((v) => { ensure(r + nr - 1, c + nc - 1); v.forEach((row, i) => row.forEach((x, j) => { g.rows[r - 1 + i][c - 1 + j] = x; })); return range(r, c, nr, nc); }),
     setValue: (x) => { ensure(r, c); g.rows[r - 1][c - 1] = x; return range(r, c, nr, nc); },
     setFontWeight: () => range(r, c, nr, nc), setBackground: () => range(r, c, nr, nc), setNumberFormat: () => range(r, c, nr, nc),
   });
   return (g.obj = {
-    setFrozenRows: () => {}, setTabColor: (c) => { g.color = c; }, getLastColumn: () => Math.max(0, ...g.rows.map(r => r.length)),
-    getLastRow: () => g.rows.filter(r => r.some(x => x !== '')).length, getMaxRows: () => Math.max(g.rows.length, 1000), getRange: range,
-    getDataRange: () => range(1, 1, g.rows.length, Math.max(1, ...g.rows.map(r => r.length))), deleteRow: (i) => { g.rows.splice(i - 1, 1); },
+    setFrozenRows: () => {}, setTabColor: (c) => { g.color = c; }, getLastColumn: C(() => Math.max(0, ...g.rows.map(r => r.length))),
+    getLastRow: C(() => g.rows.filter(r => r.some(x => x !== '')).length), getMaxRows: () => Math.max(g.rows.length, 1000), getRange: C(range),
+    getDataRange: C(() => range(1, 1, g.rows.length, Math.max(1, ...g.rows.map(r => r.length)))), deleteRow: (i) => { g.rows.splice(i - 1, 1); },
   });
 };
 const ss = {
@@ -49,11 +51,11 @@ const ctx = {
 };
 vm.createContext(ctx);
 vm.runInContext(readFileSync('apps-script/Code.gs', 'utf8'), ctx);
-return { ctx, grids, props, triggers, copies, setAnswer: (a) => { uiAnswer = a; } };
+return { ctx, grids, props, triggers, copies, calls, setAnswer: (a) => { uiAnswer = a; } };
 }
 
 const env = makeEnv();
-const { ctx, grids, props, triggers, copies } = env;
+const { ctx, grids, props, triggers, copies, calls } = env;
 const post = (o) => JSON.parse(vm.runInContext('doPost', ctx)({ postData: { contents: JSON.stringify(o) } }).getContent());
 const up = (table, row) => ({ t: 'upsert', table, row });
 
@@ -143,4 +145,15 @@ console.log('Code.gs smoke test passed (one spreadsheet, 12 tabs, setup, passwor
   for (const tab of ['Vendors', 'Items', 'Prices', 'PurchaseOrders', 'POLines', 'Receipts', 'Payments', 'Stock', 'Log']) assert.equal(e2.grids.get(tab).rows.length, 1, tab + ' has only its header row again');
   assert.equal(e2.grids.get('Users').rows.length, 2, 'admin kept, demo.* logins removed');
   console.log('Code.gs sample data + cleanup passed');
+}
+
+// ---- speed: number of calls into the Sheets API per request (each one is a network round trip on Google's side)
+{
+  const measure = (fn) => { const n0 = calls.n; fn(); return calls.n - n0; };
+  const nBoot = measure(() => post({ action: 'bootstrap', token: ho }));
+  const nPoSave = measure(() => post({ action: 'commit', token: buyer, name: 'po.save', note: 'x', ops: [up('pos', { id: 'p9', vendorId: 'V2', terms: 'x', advanceRequired: false, advanceAmount: 0, expectedDate: '2026-12-01', status: 'Draft', advanceStatus: 'Not Required', route: '', step: 0, date: '2026-10-12' }), up('poLines', { id: 'p9:I1', poId: 'p9', itemId: 'I1', qty: 5, price: 1790 })] }));
+  const nLogin = measure(() => post({ action: 'login', loginId: 'buyer', password: 'pass-buyer' }));
+  console.log(`Sheets calls: bootstrap ${nBoot}, PO save ${nPoSave}, login ${nLogin}`);
+  assert.ok(nBoot <= 26, 'bootstrap reads each tab once: ' + nBoot);
+  assert.ok(nPoSave <= 28, 'a PO save stays cheap: ' + nPoSave);
 }
