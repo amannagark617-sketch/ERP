@@ -8,7 +8,7 @@ const TABS = ['All', 'Awaiting approval', 'Open', 'Delay / Pending', 'Closed'] a
 
 export default function PoList() {
   const s = useStore();
-  const { can } = useAuth();
+  const { can, sees } = useAuth();
   const [tab, setTab] = useState<(typeof TABS)[number]>('All');
   const rows = [...s.pos].reverse().filter(p => {
     const st = displayStatus(s, p);
@@ -30,14 +30,14 @@ export default function PoList() {
       <Card>
         {rows.length === 0 ? <Empty>No purchase orders here.</Empty> : (
           <div className="tablewrap"><table>
-            <thead><tr><th>PO</th><th>Date</th><th>Vendor</th><th>Dept</th><th className="r">Value</th><th>Expected</th><th className="r">Pending qty</th><th>Status</th><th className="r">Outstanding</th></tr></thead>
+            <thead><tr><th>PO</th><th>Date</th><th>Vendor</th><th>Dept</th><th className="r">Value</th><th>Expected</th><th className="r">Pending qty</th><th>Status</th>{sees('Accounts') && <th className="r">Outstanding</th>}</tr></thead>
             <tbody>{rows.map(p => (
               <tr key={p.id} className={isDelayed(s, p) ? 'hl' : ''}>
                 <td><Link to={`/pos/${p.id}`}>{p.poNo}</Link></td><td>{fmtDate(p.date)}</td><td>{vendorOf(s, p.vendorId)?.name}</td><td>{p.department}</td>
                 <td className="r">{inr(poValue(p))}</td><td>{fmtDate(p.expectedDate)}</td>
                 <td className="r">{p.status === 'Sent to Vendor' ? totalPending(s, p) : '—'}</td>
                 <td><Badge>{displayStatus(s, p)}</Badge> {isDelayed(s, p) && <Badge>Delay</Badge>}</td>
-                <td className="r">{inr(outstanding(s, p.id))}</td>
+                {sees('Accounts') && <td className="r">{inr(outstanding(s, p.id))}</td>}
               </tr>
             ))}</tbody>
           </table></div>

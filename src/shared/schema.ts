@@ -41,6 +41,7 @@ export const TABLES = {
       c('cPo', 'Create & Send POs', 'bool'), c('cAdvance', 'Pay Advances', 'bool'), c('cReceive', 'Receive Goods (Stock In)', 'bool'),
       c('cIssue', 'Issue Stock (Stock Out)', 'bool'), c('cAdjust', 'Adjust Stock', 'bool'), c('cPay', 'Accept Invoices & Pay', 'bool'),
       c('cMaster', 'Manage Vendors, Items & Prices', 'bool'), c('cUsers', 'Manage Users', 'bool'),
+      c('screens', 'Screens this role sees (comma separated, or All)'),
     ],
   },
   settings: {

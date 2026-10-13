@@ -1,4 +1,5 @@
 import { TableKey } from './schema';
+import { DEFAULT_SCREENS } from './screens';
 
 type Rows = Partial<Record<TableKey, any[]>>;
 
@@ -7,14 +8,14 @@ const caps = (...on: string[]) => Object.fromEntries(['cPo', 'cAdvance', 'cRecei
 /** Written on first setup: the process policy only - no business data. */
 export function configSeed(): Rows {
   return {
-    roles: [
+    roles: ([
       // Admin does everything: second-level approver for POs above Rs 10 Lac, vendors/items/prices, stock corrections, users
       { role: 'Admin', level: 5, approvesAbove: '1000000', ...caps('cPo', 'cAdvance', 'cReceive', 'cIssue', 'cAdjust', 'cPay', 'cMaster', 'cUsers') },
       { role: 'Factory Head', level: 3, approvesAbove: '0', ...caps() },
       { role: 'Purchase', level: 2, approvesAbove: '', ...caps('cPo') },
       { role: 'Accounts', level: 2, approvesAbove: '', ...caps('cAdvance', 'cPay') },
       { role: 'Inventory', level: 1, approvesAbove: '', ...caps('cReceive', 'cIssue') },
-    ],
+    ] as any[]).map(r => ({ ...r, screens: (DEFAULT_SCREENS[r.role] ?? []).join(', ') })),
     // One starter login with NO password: the admin types one into the Users tab before first use.
     users: [{ loginId: 'admin', password: '', name: 'Administrator', role: 'Admin', department: 'Management', level: 5, reportsTo: '', active: true }],
     settings: [

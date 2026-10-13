@@ -361,6 +361,55 @@ await test('sample data loads into an empty system, is consistent, and works wit
   assert.match(M.loadSample(h, TODAY), /Sample data loaded/, 'and it can be loaded again');
 });
 
+console.log('role views');
+await test('each role gets its own menu (screens) from the Roles tab', () => {
+  const screens = (u) => boot(u).user.screens;
+  assert.deepEqual(screens('navneet'), ['Dashboard', 'Purchase Orders', 'Stock', 'Vendors', 'Items & Prices']);
+  assert.deepEqual(screens('factoryhead'), ['Dashboard', 'Purchase Orders', 'Stock']);
+  assert.deepEqual(screens('inventory'), ['Dashboard', 'Purchase Orders', 'Goods Receipt', 'Stock']);
+  assert.deepEqual(screens('accounts'), ['Dashboard', 'Purchase Orders', 'Accounts', 'Vendors']);
+  assert.deepEqual(screens('admin'), ['Dashboard', 'Purchase Orders', 'Goods Receipt', 'Stock', 'Accounts', 'Vendors', 'Items & Prices', 'Users & Access']);
+});
+await test('the menu is editable in the Roles tab: spelling is forgiven, Dashboard is always there, unknown names are ignored, All works, blank = standard menu', () => {
+  const col = 'Screens this role sees (comma separated, or All)';
+  const row = (role) => sheetRow('Roles', r => r.Role === role);
+  const was = row('Inventory')[col];
+  host.update('Roles', row('Inventory').__row, { [col]: 'stock ,  GOODS RECEIPT; Nonsense' });
+  assert.deepEqual(boot('inventory').user.screens, ['Dashboard', 'Goods Receipt', 'Stock']);
+  host.update('Roles', row('Inventory').__row, { [col]: 'All' });
+  assert.equal(boot('inventory').user.screens.length, 8);
+  host.update('Roles', row('Inventory').__row, { [col]: '' });
+  assert.deepEqual(boot('inventory').user.screens, ['Dashboard', 'Purchase Orders', 'Goods Receipt', 'Stock'], 'blank falls back to the standard menu for a standard role');
+  host.update('Roles', row('Inventory').__row, { [col]: was });
+});
+await test('a custom role nobody configured sees only the bare minimum', () => {
+  const h = M.createMemHost(); M.setup(h);
+  const no = { 'Create & Send POs': 'No', 'Pay Advances': 'No', 'Receive Goods (Stock In)': 'No', 'Issue Stock (Stock Out)': 'No', 'Adjust Stock': 'No', 'Accept Invoices & Pay': 'No', 'Manage Vendors, Items & Prices': 'No', 'Manage Users': 'No' };
+  h.append('Roles', { Role: 'Visitor', Level: 1, ...no });
+  h.update('Users', h.read('Users')[0].__row, { Password: 'Pw-123456' });
+  const ad = M.handle(h, { action: 'login', loginId: 'admin', password: 'Pw-123456' }).token;
+  assert.ok(M.handle(h, { action: 'users.save', token: ad, user: { loginId: 'guest1', name: 'G', role: 'Visitor', level: 1, active: true, password: 'secret12' } }).ok);
+  const tk = M.handle(h, { action: 'login', loginId: 'guest1', password: 'secret12' }).token;
+  assert.deepEqual(M.handle(h, { action: 'bootstrap', token: tk }).user.screens, ['Dashboard', 'Purchase Orders']);
+});
+await test('vendor bank details are sent only to roles that pay or maintain vendors', () => {
+  const bank = (u) => boot(u).data.vendors.find(v => v.id === 'V1');
+  for (const u of ['navneet', 'inventory', 'factoryhead']) { const v = bank(u); assert.equal(v.accountNo, ''); assert.equal(v.bankName, ''); assert.equal(v.ifsc, ''); assert.equal(v.name, 'Sharma Mechanisms', u + ' still sees the rest'); }
+  for (const u of ['accounts', 'admin']) { const v = bank(u); assert.ok(v.accountNo && v.bankName && v.ifsc, u + ' sees bank details'); }
+  assert.ok(!JSON.stringify(boot('navneet')).includes('5010000000'), 'not anywhere in the Purchase payload');
+});
+await test('an older sheet whose Roles rows have an empty Screens cell gets the standard menus on setup(), custom values kept', () => {
+  const h = M.createMemHost(); M.setup(h);
+  const col = 'Screens this role sees (comma separated, or All)';
+  const rows = h.read('Roles');
+  h.update('Roles', rows.find(r => r.Role === 'Purchase').__row, { [col]: '' });
+  h.update('Roles', rows.find(r => r.Role === 'Accounts').__row, { [col]: 'Dashboard, Accounts' });
+  M.setup(h);
+  const get = (n) => h.read('Roles').find(r => r.Role === n)[col];
+  assert.equal(get('Purchase'), 'Dashboard, Purchase Orders, Stock, Vendors, Items & Prices');
+  assert.equal(get('Accounts'), 'Dashboard, Accounts', 'your own choice is never overwritten');
+});
+
 console.log('brand');
 await test('brand: a vendor can sell one item in several brands; keys include the brand; blank brand keeps the old key', () => {
   const price = (vendorId, itemId, brand, p, id) => up('prices', { id: id ?? (brand ? `${vendorId}:${itemId}:${brand.toLowerCase()}` : `${vendorId}:${itemId}`), vendorId, itemId, brand, price: p });

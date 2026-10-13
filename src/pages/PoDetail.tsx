@@ -11,7 +11,8 @@ import { HistoryEntry } from '../types';
 
 export default function PoDetail({ id }: { id: string }) {
   const s = useStore();
-  const { can, role } = useAuth();
+  const { can, role, sees } = useAuth();
+  const money = sees('Accounts'); // payment details are for Accounts and Admin only
   const [remark, setRemark] = useState('');
   const [paying, setPaying] = useState(false);
   const [history, setHistory] = useState<HistoryEntry[] | null>(null);
@@ -74,14 +75,14 @@ export default function PoDetail({ id }: { id: string }) {
         </table></div>
       </Card>
 
-      <Card title="Payment tracking">
+      {money && <Card title="Payment tracking">
         <div className="grid">
           <Stat label="PO value" value={inr(poValue(po))} />
           <Stat label="Received (as per invoices)" value={inr(receivedValue(s, po.id))} />
           <Stat label="Already paid" value={inr(paidTotal(s, po.id))} sub={`of which advance ${inr(advancePaid(s, po.id))}`} />
           <Stat label="Outstanding payable" value={inr(outstanding(s, po.id))} tone={outstanding(s, po.id) ? 'amber' : 'green'} />
         </div>
-      </Card>
+      </Card>}
 
       {/* ---- Role actions ---- */}
       {can('po.save') && (po.status === 'Draft' || po.status === 'Rejected') && (
@@ -133,11 +134,11 @@ export default function PoDetail({ id }: { id: string }) {
       <Card title="Goods receipts & invoices">
         {invoicesOf(s, po.id).length === 0 ? <Empty>No goods received yet.</Empty> : (
           <div className="tablewrap"><table>
-            <thead><tr><th>GRN</th><th>Invoice</th><th>Received</th><th className="r">Invoice total</th><th className="r">Advance adj.</th><th className="r">Payable</th><th className="r">Paid</th><th className="r">Balance</th><th>Accounts</th><th>Invoice copy</th></tr></thead>
+            <thead><tr><th>GRN</th><th>Invoice</th><th>Received</th><th className="r">Invoice total</th>{money && <><th className="r">Advance adj.</th><th className="r">Payable</th><th className="r">Paid</th><th className="r">Balance</th></>}<th>Accounts</th><th>Invoice copy</th></tr></thead>
             <tbody>{invoicesOf(s, po.id).map(r => (
               <tr key={r.id}><td>{r.grnNo || '…'}</td><td>{r.invoiceNo}<br /><span className="mut">{fmtDate(r.invoiceDate)}</span></td><td>{fmtDate(r.receivedDate)}</td>
-                <td className="r">{inr(r.grandTotal)}</td><td className="r">{inr(r.advanceAdjusted)}</td><td className="r">{inr(r.payable)}</td>
-                <td className="r">{inr(receiptPaid(s, r))}</td><td className="r">{inr(receiptBalance(s, r))}</td><td>{r.accepted ? <span className="ok">Accepted</span> : <span className="mut">Awaiting</span>}</td><td><FileLink id={r.invoiceFile} /></td></tr>
+                <td className="r">{inr(r.grandTotal)}</td>{money && <><td className="r">{inr(r.advanceAdjusted)}</td><td className="r">{inr(r.payable)}</td>
+                <td className="r">{inr(receiptPaid(s, r))}</td><td className="r">{inr(receiptBalance(s, r))}</td></>}<td>{r.accepted ? <span className="ok">Accepted</span> : <span className="mut">Awaiting</span>}</td><td><FileLink id={r.invoiceFile} /></td></tr>
             ))}</tbody>
           </table></div>
         )}

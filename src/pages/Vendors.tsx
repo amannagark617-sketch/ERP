@@ -16,6 +16,7 @@ export default function Vendors() {
   const s = useStore();
   const { can } = useAuth();
   const ho = can('master.manage');
+  const showBank = can('payment.make') || can('master.manage'); // bank details are for Accounts and Admin only
   const [editing, setEditing] = useState<Draft | null>(null);
   const [q, setQ] = useState('');
   const [showInactive, setShowInactive] = useState(false);
@@ -41,8 +42,8 @@ export default function Vendors() {
             <p className="mut" style={{ margin: '0 0 8px' }}>{v.contact} · {v.email} · WhatsApp {v.whatsapp}<br />{[v.address, v.city, v.state].filter(Boolean).join(', ')}</p>
             <p className="mut" style={{ margin: '0 0 8px' }}>
               {v.msme ? <>Udyam <b>{v.udyamNo || 'missing'}</b> ({v.msmeType || 'type not set'})<br /></> : null}
-              GSTIN {v.gstin || '—'} · PAN {v.pan || '—'} · Terms {v.paymentTermsDays} days<br />
-              Bank {v.bankName || '—'} · A/c {v.accountNo || '—'} · IFSC {v.ifsc || '—'}
+              GSTIN {v.gstin || '—'} · PAN {v.pan || '—'} · Terms {v.paymentTermsDays} days
+              {showBank && <><br />Bank {v.bankName || '—'} · A/c {v.accountNo || '—'} · IFSC {v.ifsc || '—'}</>}
             </p>
           </div>
           {v.items.length === 0 ? <Empty>No items on this vendor's price list.</Empty> : (

@@ -122,6 +122,8 @@ export interface User {
   department: string;
   level: number;
   permissions: string[];
+  /** menu screens this role sees (from the Roles tab) */
+  screens: string[];
 }
 
 export interface Approver { role: string; above: number; level: number }

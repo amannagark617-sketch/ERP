@@ -296,7 +296,8 @@ var Core = (() => {
         c("cAdjust", "Adjust Stock", "bool"),
         c("cPay", "Accept Invoices & Pay", "bool"),
         c("cMaster", "Manage Vendors, Items & Prices", "bool"),
-        c("cUsers", "Manage Users", "bool")
+        c("cUsers", "Manage Users", "bool"),
+        c("screens", "Screens this role sees (comma separated, or All)")
       ]
     },
     settings: {
@@ -635,6 +636,27 @@ var Core = (() => {
     return H.map((x) => (x >>> 0).toString(16).padStart(8, "0")).join("");
   }
 
+  // src/shared/screens.ts
+  var ALL_SCREENS = ["Dashboard", "Purchase Orders", "Goods Receipt", "Stock", "Accounts", "Vendors", "Items & Prices", "Users & Access"];
+  var DEFAULT_SCREENS = {
+    Admin: ALL_SCREENS,
+    "Factory Head": ["Dashboard", "Purchase Orders", "Stock"],
+    Purchase: ["Dashboard", "Purchase Orders", "Stock", "Vendors", "Items & Prices"],
+    Accounts: ["Dashboard", "Purchase Orders", "Accounts", "Vendors"],
+    Inventory: ["Dashboard", "Purchase Orders", "Goods Receipt", "Stock"]
+  };
+  var FALLBACK_SCREENS = ["Dashboard", "Purchase Orders"];
+  function parseScreens(cell, roleName, level, adminLevel) {
+    var _a;
+    if (level >= adminLevel) return ALL_SCREENS;
+    const text = String(cell != null ? cell : "").trim();
+    if (!text) return (_a = DEFAULT_SCREENS[roleName]) != null ? _a : FALLBACK_SCREENS;
+    if (/^all$/i.test(text)) return ALL_SCREENS;
+    const wanted = text.split(/[,;|]/).map((x) => x.trim().toLowerCase()).filter(Boolean);
+    const out = ALL_SCREENS.filter((s) => wanted.includes(s.toLowerCase()));
+    return out.includes("Dashboard") ? out : ["Dashboard", ...out];
+  }
+
   // src/shared/seed.ts
   var caps = (...on) => Object.fromEntries(["cPo", "cAdvance", "cReceive", "cIssue", "cAdjust", "cPay", "cMaster", "cUsers"].map((k) => [k, on.includes(k)]));
   function configSeed() {
@@ -646,7 +668,10 @@ var Core = (() => {
         { role: "Purchase", level: 2, approvesAbove: "", ...caps("cPo") },
         { role: "Accounts", level: 2, approvesAbove: "", ...caps("cAdvance", "cPay") },
         { role: "Inventory", level: 1, approvesAbove: "", ...caps("cReceive", "cIssue") }
-      ],
+      ].map((r) => {
+        var _a;
+        return { ...r, screens: ((_a = DEFAULT_SCREENS[r.role]) != null ? _a : []).join(", ") };
+      }),
       // One starter login with NO password: the admin types one into the Users tab before first use.
       users: [{ loginId: "admin", password: "", name: "Administrator", role: "Admin", department: "Management", level: 5, reportsTo: "", active: true }],
       settings: [
@@ -1185,7 +1210,15 @@ var Core = (() => {
   function buildUser(db, u) {
     const roleRow = db.rows("roles").find((r) => lc(r.role) === lc(u.role));
     const level = u.level || (roleRow == null ? void 0 : roleRow.level) || 0;
-    return { loginId: u.loginId, name: u.name || u.loginId, role: (roleRow == null ? void 0 : roleRow.role) || u.role, department: u.department || "", level, permissions: permissionsFor(db, u.role, level) };
+    return {
+      loginId: u.loginId,
+      name: u.name || u.loginId,
+      role: (roleRow == null ? void 0 : roleRow.role) || u.role,
+      department: u.department || "",
+      level,
+      permissions: permissionsFor(db, u.role, level),
+      screens: parseScreens(roleRow == null ? void 0 : roleRow.screens, (roleRow == null ? void 0 : roleRow.role) || u.role, level, ADMIN_LEVEL)
+    };
   }
   function login(host, db, req) {
     var _a;
@@ -1346,7 +1379,8 @@ var Core = (() => {
     });
     const data = {
       items: db.rows("items").filter((r) => r.id).map(clean),
-      vendors: db.rows("vendors").filter((r) => r.id).map(clean),
+      // bank details go only to people who pay vendors or maintain the vendor list
+      vendors: db.rows("vendors").filter((r) => r.id).map((r) => user.permissions.indexOf("payment.make") >= 0 || user.permissions.indexOf("master.manage") >= 0 ? clean(r) : { ...clean(r), bankName: "", accountNo: "", ifsc: "" }),
       prices: db.rows("prices").filter((r) => r.id).map(clean),
       pos: pos.filter((p) => poIn.has(p.id)).map(clean),
       poLines: lines.filter((l) => poIn.has(l.poId)).map(clean),
@@ -1835,6 +1869,14 @@ var Core = (() => {
     gone.sort((a, b) => b.__row - a.__row).forEach((u) => host.remove(def("users").sheet, u.__row));
     old.sort((a, b) => b.__row - a.__row).forEach((r) => host.remove(def("roles").sheet, r.__row));
   }
+  function fillDefaultScreens(host) {
+    var _a;
+    const db = new Db(host);
+    for (const r of db.rows("roles")) {
+      const def_ = DEFAULT_SCREENS[String(r.role).trim()];
+      if (def_ && !String((_a = r.screens) != null ? _a : "").trim()) db.touch("roles", { ...r, screens: def_.join(", ") });
+    }
+  }
   function setup(host, extra) {
     const keys = Object.keys(TABLES);
     for (const [sheet, from, to] of RENAMED_HEADERS) host.renameHeader(sheet, from, to);
@@ -1856,6 +1898,7 @@ var Core = (() => {
     const stale = db.rows("settings").filter((r) => OLD_LETTERHEAD_ROWS[r.key] && OLD_LETTERHEAD_ROWS[r.key].indexOf(r.value) >= 0);
     stale.sort((a, b) => b.__row - a.__row).forEach((r) => host.remove(def("settings").sheet, r.__row));
     mergeCaHoIntoAdmin(host);
+    fillDefaultScreens(host);
     return "Setup complete.";
   }
   function loadSample(host, today) {

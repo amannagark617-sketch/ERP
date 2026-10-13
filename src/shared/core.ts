@@ -7,6 +7,7 @@ import { sha256 } from './sha256';
 import { configSeed } from './seed';
 import { approversOf, routeFor } from './approval';
 import { lineKey, normBrand, sameBrand, stockKey } from './keys';
+import { DEFAULT_SCREENS, parseScreens } from './screens';
 import { SAMPLE_USER_PREFIX, sampleData, sampleUsers } from './sample';
 
 export interface Host {
@@ -109,7 +110,7 @@ export type { Approver } from './approval';
 // ---------------------------------------------------------------- auth
 const hashPw = (loginId: string, pw: string) => 'sha256:' + sha256(lc(loginId) + ':' + pw);
 
-interface User { loginId: string; name: string; role: string; department: string; level: number; permissions: string[] }
+interface User { loginId: string; name: string; role: string; department: string; level: number; permissions: string[]; screens: string[] }
 
 function permissionsFor(db: Db, role: string, level: number): string[] {
   const r = db.rows('roles').find(x => lc(x.role) === lc(role));
@@ -123,7 +124,10 @@ function permissionsFor(db: Db, role: string, level: number): string[] {
 function buildUser(db: Db, u: any): User {
   const roleRow = db.rows('roles').find(r => lc(r.role) === lc(u.role));
   const level = u.level || roleRow?.level || 0;
-  return { loginId: u.loginId, name: u.name || u.loginId, role: roleRow?.role || u.role, department: u.department || '', level, permissions: permissionsFor(db, u.role, level) };
+  return {
+    loginId: u.loginId, name: u.name || u.loginId, role: roleRow?.role || u.role, department: u.department || '', level, permissions: permissionsFor(db, u.role, level),
+    screens: parseScreens(roleRow?.screens, roleRow?.role || u.role, level, ADMIN_LEVEL),
+  };
 }
 
 function login(host: Host, db: Db, req: any) {
@@ -251,7 +255,9 @@ function bootstrap(host: Host, db: Db, user: User, all: boolean) {
 
   const data: Record<string, any[]> = {
     items: db.rows('items').filter(r => r.id).map(clean),
-    vendors: db.rows('vendors').filter(r => r.id).map(clean),
+    // bank details go only to people who pay vendors or maintain the vendor list
+    vendors: db.rows('vendors').filter(r => r.id).map(r => (user.permissions.indexOf('payment.make') >= 0 || user.permissions.indexOf('master.manage') >= 0
+      ? clean(r) : { ...clean(r), bankName: '', accountNo: '', ifsc: '' })),
     prices: db.rows('prices').filter(r => r.id).map(clean),
     pos: pos.filter(p => poIn.has(p.id)).map(clean),
     poLines: lines.filter(l => poIn.has(l.poId)).map(clean),
@@ -695,6 +701,15 @@ function mergeCaHoIntoAdmin(host: Host) {
   old.sort((a, b) => b.__row - a.__row).forEach(r => host.remove(def('roles').sheet, r.__row));
 }
 
+/** Standard roles whose "Screens" cell is still empty (an older sheet) get their starting menu. Never overwrites a value. */
+function fillDefaultScreens(host: Host) {
+  const db = new Db(host);
+  for (const r of db.rows('roles')) {
+    const def_ = DEFAULT_SCREENS[String(r.role).trim()];
+    if (def_ && !String(r.screens ?? '').trim()) db.touch('roles', { ...r, screens: def_.join(', ') });
+  }
+}
+
 export function setup(host: Host, extra?: Partial<Record<TableKey, any[]>>): string {
   const keys = Object.keys(TABLES) as TableKey[];
   for (const [sheet, from, to] of RENAMED_HEADERS) host.renameHeader(sheet, from, to);
@@ -717,6 +732,7 @@ export function setup(host: Host, extra?: Partial<Record<TableKey, any[]>>): str
   const stale = db.rows('settings').filter(r => OLD_LETTERHEAD_ROWS[r.key] && OLD_LETTERHEAD_ROWS[r.key].indexOf(r.value) >= 0);
   stale.sort((a, b) => b.__row - a.__row).forEach(r => host.remove(def('settings').sheet, r.__row)); // bottom-up so row numbers stay valid
   mergeCaHoIntoAdmin(host);
+  fillDefaultScreens(host);
   return 'Setup complete.';
 }
 

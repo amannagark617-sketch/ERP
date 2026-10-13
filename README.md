@@ -176,6 +176,21 @@ Emailing/WhatsApp-ing the PDF is still a manual attach (a browser can't attach f
 - **Don'ts:** don't delete or rename header cells; don't sort or filter the grey tabs in place (use a copy or a filter *view*); keep the Sheet's owner account alive.
 - If Google changes something, only `apps-script/host.gs` needs touching – the business rules are separate.
 
+## What each role sees
+Every login gets only the screens, dashboard tiles and figures it needs. The menu is a column in the **Roles** tab: **"Screens this role sees (comma separated, or All)"**.
+
+| Role | Default menu | Notes |
+|---|---|---|
+| Admin | everything | Level 5+ always sees all screens |
+| Factory Head | Dashboard, Purchase Orders, Stock | approves POs |
+| Purchase | Dashboard, Purchase Orders, Stock, Vendors, Items & Prices | no bank details, no payment figures |
+| Accounts | Dashboard, Purchase Orders, Accounts, Vendors | sees payment figures and vendor bank details |
+| Inventory | Dashboard, Purchase Orders, Goods Receipt, Stock | no payment figures |
+
+- To change a menu, edit that cell in the Roles tab (names: Dashboard, Purchase Orders, Goods Receipt, Stock, Accounts, Vendors, Items & Prices, Users & Access). Blank cells of the standard roles are refilled with the defaults by `setup`; your own text is never overwritten. A new custom role with a blank cell sees Dashboard + Purchase Orders only.
+- Typing a hidden screen's address shows "This screen is not part of your role". Payment columns and tiles appear only for roles that see Accounts; vendor bank details are removed by the server for anyone who can neither pay nor manage vendors.
+- This is a view restriction, not a security vault: the server still re-checks every action, but keep the spreadsheet itself shared with the Admin only.
+
 ## Access model
 - Every screen and button follows the **Roles** tab. Approval is by *role at the current step*: a PO "Pending Admin" can be approved only by a user whose Role is `Admin`.
 - The server re-checks every save: role permission, approval route (recomputed from the Roles tab), prices (must equal that vendor's price), received quantity vs pending, advance deduction, invoice total, payments (accepted invoice, not above the balance), stock issue (not below zero), no edits to past payments/stock/log, and a version check so two people can't silently overwrite each other.

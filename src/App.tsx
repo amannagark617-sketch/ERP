@@ -75,11 +75,13 @@ export default function App() {
   if (s.phase === 'setup') return <Setup />;
   if (s.phase === 'login' || !s.user) return <Login notice={s.error} />;
 
-  const can = (p: string) => s.user!.permissions.includes(p);
-  const NAV: [string, string][] = [
-    ['/', 'Dashboard'], ['/pos', 'Purchase Orders'], ['/receipts', 'Goods Receipt'], ['/stock', 'Stock'], ['/accounts', 'Accounts'], ['/vendors', 'Vendors'], ['/items', 'Items & Prices'],
-    ...(can('users.manage') ? [['/admin', 'Users & Access'] as [string, string]] : []),
+  // Every role sees only its own screens (Roles tab → "Screens this role sees")
+  const ALL_NAV: [string, string][] = [
+    ['/', 'Dashboard'], ['/pos', 'Purchase Orders'], ['/receipts', 'Goods Receipt'], ['/stock', 'Stock'], ['/accounts', 'Accounts'], ['/vendors', 'Vendors'], ['/items', 'Items & Prices'], ['/admin', 'Users & Access'],
   ];
+  const NAV = ALL_NAV.filter(([, label]) => s.user!.screens.includes(label) && (label !== 'Users & Access' || s.user!.permissions.includes('users.manage')));
+  const screenOf = (p: string) => { const hit = ALL_NAV.find(([to]) => (to === '/' ? p === '/' || p === '' : p === to || p.startsWith(to + '/'))); return hit ? hit[1] : ''; };
+  const allowed = NAV.some(([, label]) => label === screenOf(path));
   return (
     <>
       <div className="topbar">
@@ -102,7 +104,9 @@ export default function App() {
           <div className="note">Showing open work and everything since {s.cutoff} (older settled POs are hidden to keep things fast).{' '}
             <a href="#" onClick={e => { e.preventDefault(); run(loadFullHistory); }}>Load full history</a></div>
         )}
-        <Guard resetKey={path}><Route path={path} /></Guard>
+        {allowed ? <Guard resetKey={path}><Route path={path} /></Guard> : (
+          <div className="note">This screen is not part of your role (<b>{s.user.role}</b>). <a href="#/">Go to your dashboard</a></div>
+        )}
       </main>
     </>
   );

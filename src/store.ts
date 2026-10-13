@@ -39,7 +39,12 @@ export const useSnap = () => useSyncExternalStore(subscribe, () => snap);
 export const useStore = (): AppState => useSyncExternalStore(subscribe, () => snap.state);
 export const useAuth = () => {
   const s = useSnap();
-  return { user: s.user, can: (perm: string) => !!s.user?.permissions.includes(perm), role: s.user?.role ?? '' };
+  return {
+    user: s.user, role: s.user?.role ?? '',
+    can: (perm: string) => !!s.user?.permissions.includes(perm),
+    /** does this role's menu include the screen? (Roles tab: "Screens this role sees") */
+    sees: (screen: string) => !!s.user?.screens.includes(screen),
+  };
 };
 export const currentToken = () => token;
 
