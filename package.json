@@ -8,7 +8,7 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "build:server": "node scripts/build-server.mjs",
-    "test": "node tests/run.mjs && node tests/gas.mjs"
+    "test": "node tests/run.mjs && node tests/gas.mjs && node tests/fifo.mjs"
   },
   "dependencies": {
     "jspdf": "^4.2.1",

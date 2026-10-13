@@ -124,3 +124,55 @@ export function cheapestPerBrand(offers: ReturnType<typeof offersFor>) {
   offers.forEach(o => { const k = o.brand.toLowerCase(); if (!best.has(k)) best.set(k, o); });
   return best;
 }
+
+// ---------------------------------------------------------------- FIFO
+export interface FifoBatch { date: string; ref: string; qty: number; remaining: number; price: number; unknownCost?: boolean }
+export interface FifoResult {
+  /** Batches per item|brand key, oldest first (remaining may be 0 = used up). */
+  batches: Record<string, FifoBatch[]>;
+  /** Cost of each issue / negative adjustment (by stock-move id), taken from the oldest batches first. */
+  cost: Record<string, number>;
+}
+
+/** First-In-First-Out: every receipt (and opening/positive adjustment) is a batch; issues drain the oldest batch first. */
+export function fifo(s: AppState): FifoResult {
+  type Ev = { date: string; order: number; key: string; seq: string; kind: 'in' | 'out'; qty: number; price: number; ref: string; id?: string; unknownCost?: boolean };
+  const ev: Ev[] = [];
+  s.receipts.forEach(r => r.lines.forEach(l => ev.push({
+    date: r.receivedDate, order: 0, key: stockKey(l.itemId, l.brand), seq: r.id, kind: 'in', qty: l.qty, price: l.price,
+    ref: [r.grnNo, r.invoiceNo].filter(Boolean).join(' · '),
+  })));
+  s.stock.forEach(m => {
+    const key = stockKey(m.itemId, m.brand);
+    if (m.type === 'ADJUST' && m.qty > 0) ev.push({ date: m.date, order: 0, key, seq: m.id, kind: 'in', qty: m.qty, price: m.price || 0, ref: m.note || 'Adjustment', unknownCost: !m.price });
+    else ev.push({ date: m.date, order: 1, key, seq: m.id, kind: 'out', qty: Math.abs(m.qty), price: 0, ref: '', id: m.id });
+  });
+  ev.sort((a, b) => a.date.localeCompare(b.date) || a.order - b.order || a.seq.localeCompare(b.seq));
+
+  const batches: Record<string, FifoBatch[]> = {};
+  // Stock from history that is not loaded (see "Load full history") is the oldest batch, cost unknown
+  Object.entries(s.stockBase).forEach(([k, q]) => { if (q > 0) batches[k] = [{ date: '', ref: 'Older history (not loaded)', qty: q, remaining: q, price: 0, unknownCost: true }]; });
+  const cost: Record<string, number> = {};
+  for (const e of ev) {
+    const q = (batches[e.key] ??= []);
+    if (e.kind === 'in') { q.push({ date: e.date, ref: e.ref, qty: e.qty, remaining: e.qty, price: e.price, unknownCost: e.unknownCost }); continue; }
+    let need = e.qty, c = 0;
+    for (const b of q) {
+      if (need <= 0) break;
+      const take = Math.min(b.remaining, need);
+      b.remaining = round2(b.remaining - take); need = round2(need - take); c += take * b.price;
+    }
+    cost[e.id!] = round2(c);
+  }
+  return { batches, cost };
+}
+
+/** FIFO value of what is on the shelf for one item (all brands, or one brand). */
+export function fifoValue(f: FifoResult, itemId: string, brand?: string): { qty: number; value: number; unknown: boolean } {
+  let qty = 0, value = 0, unknown = false;
+  for (const [k, bs] of Object.entries(f.batches)) {
+    if (brand === undefined ? !k.startsWith(itemId + '|') : k !== stockKey(itemId, brand)) continue;
+    for (const b of bs) { qty += b.remaining; value += b.remaining * b.price; if (b.unknownCost && b.remaining > 0) unknown = true; }
+  }
+  return { qty: round2(qty), value: round2(value), unknown };
+}

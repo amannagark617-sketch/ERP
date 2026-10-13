@@ -101,6 +101,8 @@ export interface StockMove extends Sys {
   qty: number; // OUT: positive quantity issued. ADJUST: signed correction
   toDept: string;
   note: string;
+  /** Unit cost, only for a positive ADJUST (opening stock) so FIFO can value it. */
+  price?: number;
   by?: string;
 }
 

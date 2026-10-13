@@ -331,11 +331,11 @@ export const actions = {
     if (qty > have) throw new Error(`Only ${have} ${item.unit} of ${lineName(s, { itemId, brand })} in stock`);
     s.stock.push({ id: uid(), date, itemId, brand: normBrand(brand), type: 'OUT', qty, toDept: toDept.trim(), note: note.trim() });
   }),
-  adjustStock: (itemId: string, brand: string, qty: number, note: string, date: string) => mutate('stock.adjust', `Stock adjusted by ${qty}`, s => {
+  adjustStock: (itemId: string, brand: string, qty: number, note: string, date: string, price?: number) => mutate('stock.adjust', `Stock adjusted by ${qty}`, s => {
     if (!itemOf(s, itemId)) throw new Error('Select an item');
     if (!qty) throw new Error('Enter the quantity (use a minus sign to reduce stock)');
     if (!note.trim()) throw new Error('Give a reason for the adjustment');
-    s.stock.push({ id: uid(), date, itemId, brand: normBrand(brand), type: 'ADJUST', qty, toDept: '', note: note.trim() });
+    s.stock.push({ id: uid(), date, itemId, brand: normBrand(brand), type: 'ADJUST', qty, toDept: '', note: note.trim(), ...(qty > 0 && price !== undefined && price >= 0 ? { price } : {}) });
   }),
 
   // ---- price queries (on PO lines)

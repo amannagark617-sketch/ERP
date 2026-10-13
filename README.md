@@ -176,6 +176,12 @@ Emailing/WhatsApp-ing the PDF is still a manual attach (a browser can't attach f
 - **Don'ts:** don't delete or rename header cells; don't sort or filter the grey tabs in place (use a copy or a filter *view*); keep the Sheet's owner account alive.
 - If Google changes something, only `apps-script/host.gs` needs touching – the business rules are separate.
 
+## Stock valuation – FIFO (First-In, First-Out)
+- Every goods receipt line is a **batch** (date, GRN/invoice, qty, price before tax). Opening stock entered with *Adjust stock* + a **unit cost** is the first batch.
+- Every issue (and every negative adjustment) is taken from the **oldest batch first**, then the next one. Each brand of an item has its own queue.
+- Stock screen: **FIFO value (₹)** per item/brand = sum of remaining batch qty × that batch's price; **FIFO batches** lists what is left in each batch; the log shows the **FIFO cost** of every issue.
+- It is calculated from the Stock/Receipts data (nothing extra to maintain). A red `*` / "no cost" means opening stock was entered without a unit cost – add a correcting adjustment with the cost. If only recent history is loaded, older stock counts as one batch with unknown cost until you press *Load full history*.
+
 ## What each role sees
 Every login gets only the screens, dashboard tiles and figures it needs. The menu is a column in the **Roles** tab: **"Screens this role sees (comma separated, or All)"**.
 

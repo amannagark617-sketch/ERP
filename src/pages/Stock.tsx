@@ -1,11 +1,13 @@
 import { Fragment, useState } from 'react';
 import { actions, useAuth, useSnap, useStore } from '../store';
-import { brandsInStock, isLowStock, itemName, knownBrands, ledger, stockOnHand } from '../domain';
+import { brandsInStock, fifo, fifoValue, isLowStock, itemName, knownBrands, ledger, stockOnHand } from '../domain';
 import { brandLabel, normBrand } from '../shared/keys';
 import { Card, Empty, Field, run } from '../ui';
 import { fmtDate, num, today } from '../utils';
 
 const DEPTS = ['Production', 'Cutting', 'Stitching', 'Assembly', 'Packing', 'Maintenance', 'Sampling'];
+
+const money = (v: { value: number; unknown: boolean }) => <>{num(v.value)}{v.unknown && <span title="Some stock has no cost (opening stock without a unit cost)" className="bad"> *</span>}</>;
 
 /** Stock on hand (per item, with a breakdown per brand) + the in/out log. Stock IN comes from goods receipts; OUT and corrections are entered here. */
 export default function Stock() {
@@ -17,6 +19,7 @@ export default function Stock() {
   const [type, setType] = useState('');
   const [limit, setLimit] = useState(100);
   const items = s.items.filter(i => i.active && (!q || i.name.toLowerCase().includes(q.toLowerCase())));
+  const f = fifo(s);
   const log = ledger(s).filter(m => (!filter || m.itemId === filter) && (!type || m.type === type));
 
   return (
@@ -32,7 +35,7 @@ export default function Stock() {
         <div className="row" style={{ marginBottom: 8 }}><input placeholder="Search items…" value={q} onChange={e => setQ(e.target.value)} /></div>
         {items.length === 0 ? <Empty>No items yet. The Admin adds items under “Items & Prices”.</Empty> : (
           <div className="tablewrap"><table>
-            <thead><tr><th>Item</th><th>Brand</th><th>Unit</th><th className="r">On hand</th><th className="r">Min</th><th></th></tr></thead>
+            <thead><tr><th>Item</th><th>Brand</th><th>Unit</th><th className="r">On hand</th><th className="r">FIFO value (₹)</th><th className="r">Min</th><th></th></tr></thead>
             <tbody>{items.map(i => {
               const all = brandsInStock(s, i.id);
               const brands = all.filter(b => stockOnHand(s, i.id, b) !== 0 || all.length === 1);
@@ -45,12 +48,12 @@ export default function Stock() {
                   <tr className={low ? 'hl' : ''}>
                     <td><b>{i.name}</b></td>
                     <td>{single ? <span className="brandtag" style={{ marginLeft: 0 }}>{named[0]}</span> : split ? <span className="mut">{brands.length} brands</span> : <span className="mut">—</span>}</td>
-                    <td>{i.unit}</td><td className="r"><b>{num(stockOnHand(s, i.id))}</b></td><td className="r">{i.minStock || '—'}</td>
+                    <td>{i.unit}</td><td className="r"><b>{num(stockOnHand(s, i.id))}</b></td><td className="r">{money(fifoValue(f, i.id))}</td><td className="r">{i.minStock || '—'}</td>
                     <td>{low && <span className="bad">Low stock</span>}</td>
                   </tr>
                   {split && brands.map(b => (
                     <tr key={i.id + '|' + b} className="sub">
-                      <td></td><td><span className="brandtag" style={{ marginLeft: 0 }}>{brandLabel(b)}</span></td><td className="mut">{i.unit}</td><td className="r">{num(stockOnHand(s, i.id, b))}</td><td></td><td></td>
+                      <td></td><td><span className="brandtag" style={{ marginLeft: 0 }}>{brandLabel(b)}</span></td><td className="mut">{i.unit}</td><td className="r">{num(stockOnHand(s, i.id, b))}</td><td className="r">{money(fifoValue(f, i.id, b))}</td><td></td><td></td>
                     </tr>
                   ))}
                 </Fragment>
@@ -60,6 +63,27 @@ export default function Stock() {
         )}
       </Card>
 
+      <Card title="FIFO batches (oldest is issued first)">
+        {(() => {
+          const rows = Object.entries(f.batches).flatMap(([k, bs]) => bs.filter(b => b.remaining > 0).map((b, n) => ({ k, b, n })))
+            .filter(({ k }) => items.some(i => k.startsWith(i.id + '|')) && (!filter || k.startsWith(filter + '|')));
+          if (rows.length === 0) return <Empty>No stock on the shelf.</Empty>;
+          return (
+            <div className="tablewrap"><table>
+              <thead><tr><th>Item</th><th>Brand</th><th>Received</th><th>Reference</th><th className="r">Qty left</th><th className="r">Unit price</th><th className="r">Value</th></tr></thead>
+              <tbody>{rows.map(({ k, b, n }) => {
+                const [id, br] = [k.slice(0, k.indexOf('|')), k.slice(k.indexOf('|') + 1)];
+                return (
+                  <tr key={k + n}><td>{itemName(s, id)}</td><td>{br ? <span className="brandtag" style={{ marginLeft: 0 }}>{brandLabel(br)}</span> : <span className="mut">—</span>}</td>
+                    <td>{b.date ? fmtDate(b.date) : '—'}</td><td className="mut">{b.ref}</td><td className="r">{num(b.remaining)}{b.remaining !== b.qty && <span className="mut"> of {num(b.qty)}</span>}</td>
+                    <td className="r">{b.unknownCost ? <span className="bad">no cost</span> : num(b.price)}</td><td className="r">{num(b.remaining * b.price)}</td></tr>
+                );
+              })}</tbody>
+            </table></div>
+          );
+        })()}
+      </Card>
+
       <Card title="Stock in / out log">
         <div className="row" style={{ marginBottom: 8 }}>
           <select value={filter} onChange={e => setFilter(e.target.value)}><option value="">All items</option>{s.items.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}</select>
@@ -67,12 +91,12 @@ export default function Stock() {
         </div>
         {log.length === 0 ? <Empty>No movements.</Empty> : (
           <div className="tablewrap"><table>
-            <thead><tr><th>Date</th><th>Item</th><th>Brand</th><th>Type</th><th className="r">Qty</th><th>Reference / issued to</th><th>Note</th><th>By</th></tr></thead>
+            <thead><tr><th>Date</th><th>Item</th><th>Brand</th><th>Type</th><th className="r">Qty</th><th>Reference / issued to</th><th className="r">FIFO cost (₹)</th><th>Note</th><th>By</th></tr></thead>
             <tbody>{log.slice(0, limit).map(m => (
               <tr key={m.key}><td>{fmtDate(m.date)}</td><td>{itemName(s, m.itemId)}</td><td>{normBrand(m.brand) ? <span className="brandtag" style={{ marginLeft: 0 }}>{normBrand(m.brand)}</span> : <span className="mut">—</span>}</td>
                 <td><span className={m.type === 'IN' ? 'ok' : m.type === 'OUT' ? 'bad' : 'mut'}>{m.type}</span></td>
                 <td className="r">{m.type === 'OUT' || (m.type === 'ADJUST' && m.qty < 0) ? '−' : '+'}{num(Math.abs(m.qty))}</td>
-                <td>{m.ref}</td><td className="mut">{m.note}</td><td className="mut">{m.by}</td></tr>
+                <td>{m.ref}</td><td className="r">{f.cost[m.key] !== undefined ? num(f.cost[m.key]) : ''}</td><td className="mut">{m.note}</td><td className="mut">{m.by}</td></tr>
             ))}</tbody>
           </table></div>
         )}
@@ -125,6 +149,7 @@ function AdjustForm() {
   const [brand, setBrand] = useState('');
   const [qty, setQty] = useState(0);
   const [note, setNote] = useState('');
+  const [cost, setCost] = useState(0);
   const [date, setDate] = useState(today());
   return (
     <Card title="Adjust stock (count correction / opening stock)">
@@ -134,9 +159,10 @@ function AdjustForm() {
         <datalist id="adj-brands">{[...new Set([...(itemId ? brandsInStock(s, itemId) : []), ...knownBrands(s, itemId || undefined)])].filter(Boolean).map(b => <option key={b} value={b} />)}</datalist>
       </Field>
       <Field label="Quantity (+ adds, − removes)"><input type="number" value={qty || ''} onChange={e => setQty(+e.target.value)} /></Field>
+      {qty > 0 && <Field label="Unit cost ₹ (needed for FIFO value of opening stock)"><input type="number" min={0} value={cost || ''} onChange={e => setCost(+e.target.value)} /></Field>}
       <Field label="Reason"><input value={note} onChange={e => setNote(e.target.value)} placeholder="e.g. Opening stock, damaged, count correction" /></Field>
       <Field label="Date"><input type="date" value={date} onChange={e => setDate(e.target.value)} /></Field>
-      <button className="btn primary" onClick={async () => { if (await run(() => actions.adjustStock(itemId, brand, qty, note, date))) { setQty(0); setNote(''); } }}>Save adjustment</button>
+      <button className="btn primary" onClick={async () => { if (await run(() => actions.adjustStock(itemId, brand, qty, note, date, cost || undefined))) { setQty(0); setNote(''); setCost(0); } }}>Save adjustment</button>
     </Card>
   );
 }

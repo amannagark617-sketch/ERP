@@ -457,6 +457,7 @@ function guards(action: string, user: User, ops: Op[], db: Db) {
         out[k] = (out[k] || 0) + s.qty;
         if (out[k] > (bal[k] || 0) + 1e-9) bad(`Only ${bal[k] || 0} ${item.unit} of ${item.name}${normBrand(s.brand) ? ' (' + normBrand(s.brand) + ')' : ''} in stock`, 'ERROR');
       } else if (s.type !== 'ADJUST' || !s.qty || !s.note) bad('Adjustments need a quantity (+/-) and a reason', 'ERROR');
+      else if (s.price !== undefined && s.price !== null && !(Number(s.price) >= 0)) bad('Unit cost cannot be negative', 'ERROR');
     }
   }
 
