@@ -320,9 +320,9 @@ await test('sample data loads into an empty system, is consistent, and works wit
   const h = M.createMemHost();
   M.setup(h);
   h.update('Users', h.read('Users')[0].__row, { Password: 'Admin-Pass-1' });
-  const msg = M.loadSample(h, TODAY);
+  const msg = M.loadSample(h, TODAY, true);
   assert.match(msg, /Sample data loaded/);
-  assert.match(M.loadSample(h, TODAY), /Not loaded/, 'never loads on top of existing data');
+  assert.match(M.loadSample(h, TODAY, true), /Not loaded/, 'never loads on top of existing data');
   const tk = (id) => { const r = M.handle(h, { action: 'login', loginId: id, password: 'Demo@1234' }); assert.ok(r.ok, id + ': ' + r.error); return r.token; };
   const B = (t) => M.handle(h, { action: 'bootstrap', token: t, all: true });
   const C = (t, name, ops, note = '') => M.handle(h, { action: 'commit', token: t, name, ops, note });
@@ -358,7 +358,17 @@ await test('sample data loads into an empty system, is consistent, and works wit
   for (const tab of ['Vendors', 'Items', 'Prices', 'PurchaseOrders', 'POLines', 'Receipts', 'Payments', 'Stock', 'Log']) assert.equal(h.read(tab).length, 0, tab);
   assert.deepEqual(h.read('Users').map(u => u['Login ID']), ['admin']); assert.equal(h.read('Roles').length, 5); assert.ok(h.read('Settings').length >= 5);
   assert.ok(M.handle(h, { action: 'login', loginId: 'admin', password: 'Admin-Pass-1' }).ok, 'admin still works');
-  assert.match(M.loadSample(h, TODAY), /Sample data loaded/, 'and it can be loaded again');
+  assert.match(M.loadSample(h, TODAY, true), /Sample data loaded/, 'and it can be loaded again');
+});
+
+await test('default sample = only vendors, items and prices (plus demo logins); no POs, receipts, payments, stock or log', () => {
+  const h = M.createMemHost();
+  M.setup(h);
+  M.loadSample(h, TODAY);
+  assert.equal(h.read('Vendors').length, 7); assert.equal(h.read('Items').length, 12); assert.equal(h.read('Prices').length, 19);
+  for (const tab of ['PurchaseOrders', 'POLines', 'Receipts', 'Payments', 'Stock']) assert.equal(h.read(tab).length, 0, tab);
+  assert.ok(h.read('Users').some(u => u['Login ID'] === 'demo.purchase'));
+  assert.match(M.loadSample(h, TODAY), /Not loaded/);
 });
 
 console.log('role views');

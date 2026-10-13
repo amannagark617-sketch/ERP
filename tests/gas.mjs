@@ -123,20 +123,21 @@ console.log('Code.gs smoke test passed (one spreadsheet, 12 tabs, setup, passwor
   vm.runInContext('setup()', e2.ctx);
   const msg = vm.runInContext('loadSampleData()', e2.ctx);
   assert.match(msg, /Sample data loaded/);
-  assert.ok(e2.grids.get('Vendors').rows.length === 8 && e2.grids.get('PurchaseOrders').rows.length === 11, 'sample vendors and POs are in the sheet');
-  assert.ok(e2.grids.get('Stock').rows.length > 20 && e2.grids.get('Log').rows.length > 30);
+  assert.equal(e2.grids.get('Vendors').rows.length, 8, 'sample vendors are in the sheet');
+  assert.equal(e2.grids.get('Items').rows.length, 13);
+  for (const tab of ['PurchaseOrders', 'POLines', 'Receipts', 'Payments', 'Stock']) assert.equal(e2.grids.get(tab).rows.length, 1, tab + ' is empty: you create POs, receipts and stock yourself');
   assert.match(vm.runInContext('loadSampleData()', e2.ctx), /Not loaded/);
   const login = post2({ action: 'login', loginId: 'demo.purchase', password: 'Demo@1234' });
   assert.ok(login.ok, login.error);
   const bt = post2({ action: 'bootstrap', token: login.token });
-  assert.equal(bt.data.pos.length, 10);
+  assert.equal(bt.data.pos.length, 0); assert.equal(bt.data.vendors.length, 7);
   // the readable text columns in the sheet
   const vrow = e2.grids.get('Vendors').rows[1];
   assert.ok(vrow.includes('Sharma Mechanisms Pvt Ltd') && vrow.some(x => String(x).startsWith('UDYAM-')));
   // clearing needs a YES
   e2.setAnswer('NO');
   assert.match(vm.runInContext('clearAllDataBeforeGoingLive()', e2.ctx), /Cancelled/);
-  assert.equal(e2.grids.get('PurchaseOrders').rows.length, 11);
+  assert.equal(e2.grids.get('Vendors').rows.length, 8);
   e2.setAnswer('YES');
   assert.match(vm.runInContext('clearAllDataBeforeGoingLive()', e2.ctx), /rows deleted/);
   for (const tab of ['Vendors', 'Items', 'Prices', 'PurchaseOrders', 'POLines', 'Receipts', 'Payments', 'Stock', 'Log']) assert.equal(e2.grids.get(tab).rows.length, 1, tab + ' has only its header row again');

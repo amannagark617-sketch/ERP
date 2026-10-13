@@ -184,8 +184,8 @@ function installBackup() {
 
 /**
  * OPTIONAL. Fills the EMPTY business tabs with realistic sample data so you can see how everything looks and try each role:
- * 6 vendors, 12 items (several sold by 3 vendors at different prices), 10 POs at every stage, receipts, payments,
- * old pending balances, stock in/out, 2 low-stock items. Also adds 4 logins: demo.purchase, demo.factory,
+ * 7 vendors, 12 items and 19 vendor prices (several items sold by 3 vendors at different prices). NO POs, receipts,
+ * payments or stock - you create those while testing. Also adds 4 logins: demo.purchase, demo.factory,
  * demo.accounts, demo.store (password Demo@1234); use your own admin login for the Admin parts. Does nothing if the sheet already has data.
  */
 function loadSampleData() {
@@ -1902,14 +1902,15 @@ var Core = (() => {
     fillDefaultScreens(host);
     return "Setup complete.";
   }
-  function loadSample(host, today) {
+  function loadSample(host, today, full = false) {
     const db = new Db(host);
     if (DATA_TABLES.some((k) => db.rows(k).length > 0)) return "Not loaded: the spreadsheet already has data. Sample data is only added to an empty system.";
     const data = sampleData(today);
-    for (const k of Object.keys(data)) for (const r of data[k]) db.put(k, r);
+    const keys = Object.keys(data).filter((k) => full || k === "vendors" || k === "items" || k === "prices");
+    for (const k of keys) for (const r of data[k]) db.put(k, r);
     for (const u of sampleUsers()) if (!db.rows("users").some((x) => lc(x.loginId) === lc(u.loginId))) db.put("users", u);
     host.bumpStamp();
-    return "Sample data loaded: 7 vendors, 12 items, 19 vendor prices, 10 POs, receipts, payments, stock movements. Log in with demo.purchase / demo.factory / demo.accounts / demo.store (password Demo@1234), and use your own admin login for the Admin parts. Remove everything with clearAllDataBeforeGoingLive() before real use.";
+    return (full ? "Sample data loaded: 7 vendors, 12 items, 19 vendor prices, 10 POs, receipts, payments, stock movements. " : "Sample data loaded: 7 vendors, 12 items and 19 vendor prices (no POs, receipts, payments or stock - you create those). ") + "Log in with demo.purchase / demo.factory / demo.accounts / demo.store (password Demo@1234), and use your own admin login for the Admin parts. Remove everything with clearAllDataBeforeGoingLive() before real use.";
   }
   function clearAllData(host) {
     let n = 0;

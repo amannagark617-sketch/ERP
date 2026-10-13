@@ -741,14 +741,17 @@ export function setup(host: Host, extra?: Partial<Record<TableKey, any[]>>): str
  * Fill the empty business tabs with realistic SAMPLE data (plus six demo.* logins) so the system can be explored.
  * Refuses if the sheet already holds any business data.
  */
-export function loadSample(host: Host, today: string): string {
+export function loadSample(host: Host, today: string, full = false): string {
   const db = new Db(host);
   if (DATA_TABLES.some(k => db.rows(k).length > 0)) return 'Not loaded: the spreadsheet already has data. Sample data is only added to an empty system.';
   const data = sampleData(today) as Record<string, any[]>;
-  for (const k of Object.keys(data) as TableKey[]) for (const r of data[k]) db.put(k, r);
+  // Normally only the master data (vendors, items, price lists); `full` (tests) also adds POs, receipts, payments and stock
+  const keys = (Object.keys(data) as TableKey[]).filter(k => full || k === 'vendors' || k === 'items' || k === 'prices');
+  for (const k of keys) for (const r of data[k]) db.put(k, r);
   for (const u of sampleUsers()) if (!db.rows('users').some(x => lc(x.loginId) === lc(u.loginId))) db.put('users', u);
   host.bumpStamp();
-  return 'Sample data loaded: 7 vendors, 12 items, 19 vendor prices, 10 POs, receipts, payments, stock movements. '
+  return (full ? 'Sample data loaded: 7 vendors, 12 items, 19 vendor prices, 10 POs, receipts, payments, stock movements. '
+    : 'Sample data loaded: 7 vendors, 12 items and 19 vendor prices (no POs, receipts, payments or stock - you create those). ')
     + 'Log in with demo.purchase / demo.factory / demo.accounts / demo.store (password Demo@1234), and use your own admin login for the Admin parts. '
     + 'Remove everything with clearAllDataBeforeGoingLive() before real use.';
 }

@@ -183,8 +183,8 @@ function installBackup() {
 
 /**
  * OPTIONAL. Fills the EMPTY business tabs with realistic sample data so you can see how everything looks and try each role:
- * 6 vendors, 12 items (several sold by 3 vendors at different prices), 10 POs at every stage, receipts, payments,
- * old pending balances, stock in/out, 2 low-stock items. Also adds 4 logins: demo.purchase, demo.factory,
+ * 7 vendors, 12 items and 19 vendor prices (several items sold by 3 vendors at different prices). NO POs, receipts,
+ * payments or stock - you create those while testing. Also adds 4 logins: demo.purchase, demo.factory,
  * demo.accounts, demo.store (password Demo@1234); use your own admin login for the Admin parts. Does nothing if the sheet already has data.
  */
 function loadSampleData() {

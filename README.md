@@ -85,13 +85,12 @@ Commit it (or send it to me and I will). Every user's browser then connects auto
    *(Menu names change from time to time; any static host also works: `npm install && npm run build`, then upload the `dist/` folder to Netlify, Vercel, Firebase Hosting, GitHub Pages…)*
 
 ### Step 7½ (optional) – See it working with sample data first
-Not sure how it should look? In Apps Script choose **`loadSampleData`** → **Run**. It fills the empty Sheet with realistic sample data:
-6 vendors (MSME and non-MSME, with Udyam numbers), 12 items – some sold by 3 vendors at different prices – 10 POs at every stage (draft, waiting for approval,
-waiting for the Admin, rejected, approved/advance due, sent, delayed, part-received, closed), receipts, payments, an open price query, old pending balances
-(one overdue MSME bill), stock in/out, and two low-stock items.
+Want something to test with? In Apps Script choose **`loadSampleData`** → **Run**. It fills the empty Sheet with only the **master data**:
+7 vendors (MSME and non-MSME, with Udyam numbers), 12 items and 19 vendor prices (some items sold by 3 vendors at different prices and brands).
+**No POs, receipts, payments or stock are added** – you create those yourself (PO → approval → receipt → payment → stock) to test the real flow.
 It also adds four logins to try the staff roles: `demo.purchase`, `demo.factory`, `demo.accounts`, `demo.store` – password **`Demo@1234`**. Use your own `admin` login for everything the Admin does.
 It only works on an empty system and never overwrites anything.
-**Before real use run `clearAllDataBeforeGoingLive`** – after a confirmation box it deletes all sample vendors, items, POs, stock… and the demo logins (your admin, Roles and Settings stay).
+**Before real use run `clearAllDataBeforeGoingLive`** – after a confirmation box it deletes all sample vendors, items, and anything you created while testing (POs, stock…), plus the demo logins (your admin, Roles and Settings stay).
 Never run that function once real data is in.
 
 ### Step 8 – First use
