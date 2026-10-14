@@ -3,7 +3,7 @@ export type Role = string;
 /** Fields the server maintains on every stored row. */
 interface Sys { _v?: number; _at?: string; _by?: string }
 
-export interface Item extends Sys { id: string; name: string; unit: string; category: string; minStock: number; active: boolean }
+export interface Item extends Sys { id: string; name: string; unit: string; category: string; minStock: number; /** Tax % set by the Admin; blank = standard rate */ tax?: string; active: boolean }
 export interface VendorItem extends Sys { itemId: string; brand: string; price: number }
 export interface Vendor extends Sys {
   id: string;
@@ -102,6 +102,7 @@ export interface StockMove extends Sys {
   toDept: string;
   note: string;
   /** Unit cost, only for a positive ADJUST (opening stock) so FIFO can value it. */
+  /** Set only by the Admin in the Sheet; otherwise the cost is picked automatically (FIFO) */
   price?: number;
   by?: string;
 }

@@ -4,6 +4,7 @@
  */
 import { DATA_TABLES, TABLES, TableKey, allCols, def, fromSheet, toSheet } from './schema';
 import { parseDateTime, showDate, showDateTime } from './dates';
+import { itemTaxRate, parseRates } from './tax';
 import { sha256 } from './sha256';
 import { configSeed } from './seed';
 import { approversOf, routeFor } from './approval';
@@ -407,6 +408,8 @@ function guards(action: string, user: User, ops: Op[], db: Db) {
       const pl = v.get('poLines', lineKey(po.id, s.itemId, s.brand));
       if (s.type !== 'IN' || s.receiptId !== r.id || s.id !== lineKey(r.id, s.itemId, s.brand) || !pl) bad('Invalid stock-in row (item or brand is not on the PO)');
       if (pl.price !== s.price) bad('Receipt price must equal the PO price');
+      const it = db.find('items', s.itemId);
+      if (s.taxRate !== itemTaxRate(it && it.tax, parseRates(settingsOf(db).TaxRates))) bad('Tax % comes from the Items tab and cannot be changed here', 'ERROR');
       if (!(s.qty > 0) || s.qty > pl.qty - receivedQty(db, po.id, s.itemId, s.brand) + 1e-9) bad('Received quantity is more than the pending PO quantity', 'ERROR');
       sub += s.qty * s.price; tax += (s.qty * s.price * s.taxRate) / 100;
     }
@@ -467,7 +470,7 @@ function guards(action: string, user: User, ops: Op[], db: Db) {
         out[k] = (out[k] || 0) + s.qty;
         if (out[k] > (bal[k] || 0) + 1e-9) bad(`Only ${bal[k] || 0} ${item.unit} of ${item.name}${normBrand(s.brand) ? ' (' + normBrand(s.brand) + ')' : ''} in stock`, 'ERROR');
       } else if (s.type !== 'ADJUST' || !s.qty || !s.note) bad('Adjustments need a quantity (+/-) and a reason', 'ERROR');
-      else if (s.price !== undefined && s.price !== null && !(Number(s.price) >= 0)) bad('Unit cost cannot be negative', 'ERROR');
+      if (s.price && user.permissions.indexOf('master.manage') < 0) bad('Stock prices are picked automatically (FIFO); only the quantity can be entered', 'ERROR');
     }
   }
 

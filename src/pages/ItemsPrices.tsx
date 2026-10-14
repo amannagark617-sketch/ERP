@@ -84,6 +84,7 @@ function ItemEditor({ item, onClose }: { item: Partial<Item> & { name: string };
         <Field label="Item name"><input value={d.name} onChange={e => setD({ ...d, name: e.target.value })} /></Field>
         <Field label="Unit"><input value={d.unit ?? ''} onChange={e => setD({ ...d, unit: e.target.value })} /></Field>
         <Field label="Category (optional)"><input value={d.category ?? ''} onChange={e => setD({ ...d, category: e.target.value })} /></Field>
+        <Field label="Tax % (blank = standard rate)"><input value={d.tax ?? ''} onChange={e => setD({ ...d, tax: e.target.value })} placeholder="e.g. 18" /></Field>
         <Field label="Min stock (low-stock alert)"><input type="number" min={0} value={d.minStock ?? 0} onChange={e => setD({ ...d, minStock: +e.target.value })} /></Field>
       </div>
       <div className="row">

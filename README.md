@@ -206,11 +206,15 @@ The app is optimistic (screens update instantly, the Sheet saves in the backgrou
 ## Dates
 Every date – in the app, the PO PDF and the Google Sheet – is **DD-MMM-YYYY** (e.g. `05-Oct-2026`); timestamps (Updated At, Log time) are `05-Oct-2026 15:30:12` in Indian time. In the Sheet you may type a date in any usual way (`5/10/2026`, `05-10-2026`, `5 Oct 2026`, `2026-10-05`) – day always comes first – and it is understood and rewritten in the standard form. Running `setup` once converts all existing dates in an older Sheet.
 
-## Stock valuation – FIFO (First-In, First-Out)
-- Every goods receipt line is a **batch** (date, GRN/invoice, qty, price before tax). Opening stock entered with *Adjust stock* + a **unit cost** is the first batch.
-- Every issue (and every negative adjustment) is taken from the **oldest batch first**, then the next one. Each brand of an item has its own queue.
-- Stock screen: **FIFO value (₹)** per item/brand = sum of remaining batch qty × that batch's price; **FIFO batches** lists what is left in each batch; the log shows the **FIFO cost** of every issue.
-- It is calculated from the Stock/Receipts data (nothing extra to maintain). A red `*` / "no cost" means opening stock was entered without a unit cost – add a correcting adjustment with the cost. If only recent history is loaded, older stock counts as one batch with unknown cost until you press *Load full history*.
+## Stock valuation – FIFO (First-In, First-Out) – prices are never typed
+- Inventory enters **quantities only**. Every price comes from the system:
+  - **Purchases:** each goods receipt line is a batch at the **PO price** (locked) with its date and GRN/invoice. The **tax %** comes from the item (Items tab → *Tax % (blank = standard rate)*, set by the Admin) – it cannot be changed at receipt.
+  - **Issues:** taken from the **oldest batch first**, then the next; the Issue form shows beforehand which batches and prices it will take and the total cost. The FIFO cost is shown in the log.
+  - **Stock added by an adjustment** (opening stock / count correction, Admin only): priced automatically at the **latest purchase price**, else the cheapest **price-list** price; if neither exists it is flagged *no cost* (never invented).
+- Each brand of an item has its own queue.
+- Stock screen: **FIFO value (₹)** per item/brand, **FIFO batches** (what is left in each batch), and the **FIFO cost** of every issue.
+- It is calculated from the Stock/Receipts data (nothing extra to maintain). If only recent history is loaded, older stock counts as one batch with unknown cost until you press *Load full history*.
+- The server refuses any stock price or tax % sent by someone who is not the Admin.
 
 ## What each role sees
 Every login gets only the screens, dashboard tiles and figures it needs. The menu is a column in the **Roles** tab: **"Screens this role sees (comma separated, or All)"**.

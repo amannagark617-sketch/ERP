@@ -420,6 +420,7 @@ var Core = (() => {
         c("unit", "Unit"),
         c("category", "Category"),
         c("minStock", "Min Stock (low-stock alert)", "num"),
+        c("tax", "Tax % (blank = standard rate)"),
         c("active", "Active (Yes/No)", "bool", true)
       ]
     },
@@ -591,6 +592,20 @@ var Core = (() => {
       else r[col.header] = v == null ? "" : String(v);
     }
     return r;
+  }
+
+  // src/shared/tax.ts
+  function parseRates(setting) {
+    const r = String(setting || "").split(",").map((s) => Number(s.trim())).filter((n) => Number.isFinite(n) && n >= 0);
+    return r.length ? r : [0, 5, 18];
+  }
+  function standardTax(rates) {
+    return rates.indexOf(18) >= 0 ? 18 : rates[0];
+  }
+  function itemTaxRate(cell, rates) {
+    const t = String(cell != null ? cell : "").trim().replace("%", "");
+    const n = Number(t);
+    return t !== "" && Number.isFinite(n) && n >= 0 ? n : standardTax(rates);
   }
 
   // src/shared/sha256.ts
@@ -1624,6 +1639,8 @@ var Core = (() => {
         const pl = v.get("poLines", lineKey(po.id, s.itemId, s.brand));
         if (s.type !== "IN" || s.receiptId !== r.id || s.id !== lineKey(r.id, s.itemId, s.brand) || !pl) bad("Invalid stock-in row (item or brand is not on the PO)");
         if (pl.price !== s.price) bad("Receipt price must equal the PO price");
+        const it = db.find("items", s.itemId);
+        if (s.taxRate !== itemTaxRate(it && it.tax, parseRates(settingsOf(db).TaxRates))) bad("Tax % comes from the Items tab and cannot be changed here", "ERROR");
         if (!(s.qty > 0) || s.qty > pl.qty - receivedQty(db, po.id, s.itemId, s.brand) + 1e-9) bad("Received quantity is more than the pending PO quantity", "ERROR");
         sub += s.qty * s.price;
         tax += s.qty * s.price * s.taxRate / 100;
@@ -1679,7 +1696,7 @@ var Core = (() => {
           out[k] = (out[k] || 0) + s.qty;
           if (out[k] > (bal[k] || 0) + 1e-9) bad(`Only ${bal[k] || 0} ${item.unit} of ${item.name}${normBrand(s.brand) ? " (" + normBrand(s.brand) + ")" : ""} in stock`, "ERROR");
         } else if (s.type !== "ADJUST" || !s.qty || !s.note) bad("Adjustments need a quantity (+/-) and a reason", "ERROR");
-        else if (s.price !== void 0 && s.price !== null && !(Number(s.price) >= 0)) bad("Unit cost cannot be negative", "ERROR");
+        if (s.price && user.permissions.indexOf("master.manage") < 0) bad("Stock prices are picked automatically (FIFO); only the quantity can be entered", "ERROR");
       }
     }
     if (action === "master.manage") {

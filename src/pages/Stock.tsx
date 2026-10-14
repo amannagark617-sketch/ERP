@@ -1,6 +1,6 @@
 import { Fragment, useState } from 'react';
 import { actions, useAuth, useSnap, useStore } from '../store';
-import { brandsInStock, fifo, fifoValue, isLowStock, itemName, knownBrands, ledger, onOrder, stockOnHand } from '../domain';
+import { brandsInStock, fifo, fifoPreview, fifoValue, isLowStock, itemName, knownBrands, ledger, onOrder, stockOnHand } from '../domain';
 import { brandLabel, normBrand } from '../shared/keys';
 import { Card, DateInput, Empty, Field, run } from '../ui';
 import { fmtDate, num, today } from '../utils';
@@ -135,6 +135,16 @@ function IssueForm() {
       )}
       {itemId && <p className="mut" style={{ margin: '0 0 8px' }}>On hand{normBrand(brand) ? ` (${normBrand(brand)})` : ''}: <b>{num(have)}</b> {s.items.find(i => i.id === itemId)?.unit}</p>}
       <Field label="Quantity"><input type="number" min={0} value={qty || ''} onChange={e => setQty(+e.target.value)} /></Field>
+      {itemId && qty > 0 && (() => {
+        const p = fifoPreview(fifo(s), itemId, brand, qty);
+        return (
+          <div className="note" style={{ margin: '0 0 8px' }}>
+            <b>Price is picked automatically – oldest stock first (FIFO)</b>
+            {p.parts.map((x, k) => <div key={k}>{num(x.qty)} × ₹{num(x.price)} <span className="mut">{x.ref}</span></div>)}
+            <div>Cost of this issue: <b>₹{num(p.cost)}</b>{p.short > 0 && <span className="bad"> · {num(p.short)} more than in stock</span>}</div>
+          </div>
+        );
+      })()}
       <Field label="Issued to (department / purpose)"><input list="depts" value={to} onChange={e => setTo(e.target.value)} /><datalist id="depts">{DEPTS.map(d => <option key={d} value={d} />)}</datalist></Field>
       <Field label="Note (optional)"><input value={note} onChange={e => setNote(e.target.value)} /></Field>
       <Field label="Date"><DateInput value={date} onChange={setDate} /></Field>
@@ -149,7 +159,6 @@ function AdjustForm() {
   const [brand, setBrand] = useState('');
   const [qty, setQty] = useState(0);
   const [note, setNote] = useState('');
-  const [cost, setCost] = useState(0);
   const [date, setDate] = useState(today());
   return (
     <Card title="Adjust stock (count correction / opening stock)">
@@ -159,10 +168,10 @@ function AdjustForm() {
         <datalist id="adj-brands">{[...new Set([...(itemId ? brandsInStock(s, itemId) : []), ...knownBrands(s, itemId || undefined)])].filter(Boolean).map(b => <option key={b} value={b} />)}</datalist>
       </Field>
       <Field label="Quantity (+ adds, − removes)"><input type="number" value={qty || ''} onChange={e => setQty(+e.target.value)} /></Field>
-      {qty > 0 && <Field label="Unit cost ₹ (needed for FIFO value of opening stock)"><input type="number" min={0} value={cost || ''} onChange={e => setCost(+e.target.value)} /></Field>}
+      {qty > 0 && <p className="mut" style={{ margin: '0 0 8px' }}>Cost is picked automatically (latest purchase price, else the price list) – nothing to enter.</p>}
       <Field label="Reason"><input value={note} onChange={e => setNote(e.target.value)} placeholder="e.g. Opening stock, damaged, count correction" /></Field>
       <Field label="Date"><DateInput value={date} onChange={setDate} /></Field>
-      <button className="btn primary" onClick={async () => { if (await run(() => actions.adjustStock(itemId, brand, qty, note, date, cost || undefined))) { setQty(0); setNote(''); setCost(0); } }}>Save adjustment</button>
+      <button className="btn primary" onClick={async () => { if (await run(() => actions.adjustStock(itemId, brand, qty, note, date))) { setQty(0); setNote(''); } }}>Save adjustment</button>
     </Card>
   );
 }

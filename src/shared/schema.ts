@@ -64,7 +64,7 @@ export const TABLES = {
     sheet: 'Items', id: 'id', kind: 'data', color: MASTER, autoId: 'I',
     cols: [
       c('id', 'Item ID'), c('name', 'Item Name'), c('unit', 'Unit'), c('category', 'Category'),
-      c('minStock', 'Min Stock (low-stock alert)', 'num'), c('active', 'Active (Yes/No)', 'bool', true),
+      c('minStock', 'Min Stock (low-stock alert)', 'num'), c('tax', 'Tax % (blank = standard rate)'), c('active', 'Active (Yes/No)', 'bool', true),
     ],
   },
   prices: {

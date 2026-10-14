@@ -462,6 +462,8 @@ await test('brand: receipts, pending quantity and stock are all per brand', () =
   let r = commit('navneet', 'po.submit', [up('pos', { ...b0, status: 'Pending Factory Head', route: 'Factory Head', step: 0 })]); assert.ok(r.ok, r.error);
   r = commit('factoryhead', 'po.approve', [up('pos', { ...r.applied[0].row, status: 'Approved', step: 1, advanceStatus: 'Not Required' })]); assert.ok(r.ok, r.error);
   r = commit('navneet', 'po.send', [up('pos', { ...r.applied[0].row, status: 'Sent to Vendor', sentVia: 'Email', sentTo: 'x' })]); assert.ok(r.ok, r.error);
+  const i3 = boot('admin').data.items.find(i => i.id === 'I3');
+  assert.ok(commit('admin', 'master.manage', [up('items', { ...i3, tax: '0' })]).ok, 'the Admin sets the item tax');
   const rc = (n, brand, qty, price = 1925, inv = 'BR-' + n) => [
     up('receipts', { id: 'rb' + n, grnNo: '', type: 'Invoice', poId: 'pb1', vendorId: 'V2', invoiceNo: inv, invoiceDate: TODAY, receivedDate: TODAY, subtotal: qty * price, taxTotal: 0, grandTotal: qty * price, advanceAdjusted: 0, payable: qty * price, dueDate: TODAY, accepted: false, acceptedDate: '', invoiceFile: '' }),
     up('stock', { id: brand ? `rb${n}:I3:${brand.toLowerCase()}` : `rb${n}:I3`, date: TODAY, itemId: 'I3', brand, type: 'IN', qty, price, taxRate: 0, receiptId: 'rb' + n, toDept: '', note: '' })];
@@ -578,27 +580,37 @@ await test('Inventory can receive an APPROVED PO directly: it becomes sent, and 
   assert.ok(ap.ok, ap.error);
   const approved = ap.applied[0].row;
   const lines = (qty, total) => [
-    up('receipts', { id: 'rd1', grnNo: '', type: 'Invoice', poId: 'po2', vendorId: 'V2', invoiceNo: 'DC-77', invoiceDate: TODAY, receivedDate: TODAY, subtotal: qty * 1850, taxTotal: qty * 1850 * 0.18, grandTotal: total, advanceAdjusted: 0, payable: total, dueDate: TODAY, accepted: false, acceptedDate: '', invoiceFile: '' }),
-    up('stock', { id: 'rd1:I3', date: TODAY, itemId: 'I3', type: 'IN', qty, price: 1850, taxRate: 18, receiptId: 'rd1', toDept: '', note: '' }),
+    up('receipts', { id: 'rd1', grnNo: '', type: 'Invoice', poId: 'po2', vendorId: 'V2', invoiceNo: 'DC-77', invoiceDate: TODAY, receivedDate: TODAY, subtotal: qty * 1850, taxTotal: 0, grandTotal: total, advanceAdjusted: 0, payable: total, dueDate: TODAY, accepted: false, acceptedDate: '', invoiceFile: '' }),
+    up('stock', { id: 'rd1:I3', date: TODAY, itemId: 'I3', type: 'IN', qty, price: 1850, taxRate: 0, receiptId: 'rd1', toDept: '', note: '' }),
   ];
   const sent = { ...approved, status: 'Sent to Vendor', sentVia: 'Received directly', sentTo: 'Factory' };
   // without marking the PO as received-directly: refused
-  assert.match(commit('inventory', 'receipt.create', lines(100, 218300)).error, /not open for receipt/);
+  assert.match(commit('inventory', 'receipt.create', lines(100, 185000)).error, /not open for receipt/);
   // trying to slip other PO changes in with it: refused
-  assert.match(commit('inventory', 'receipt.create', [...lines(100, 218300), up('pos', { ...sent, terms: 'changed' })]).error, /sending details/);
-  assert.match(commit('inventory', 'receipt.create', [...lines(100, 218300), up('pos', { ...sent, expectedDate: '2030-01-01' })]).error, /sending details/);
+  assert.match(commit('inventory', 'receipt.create', [...lines(100, 185000), up('pos', { ...sent, terms: 'changed' })]).error, /sending details/);
+  assert.match(commit('inventory', 'receipt.create', [...lines(100, 185000), up('pos', { ...sent, expectedDate: '2030-01-01' })]).error, /sending details/);
   // other roles still cannot
-  assert.equal(commit('navneet', 'receipt.create', [...lines(100, 218300), up('pos', sent)]).code, 'FORBIDDEN');
-  const r = commit('inventory', 'receipt.create', [...lines(100, 218300), up('pos', sent)], 'Goods received, invoice DC-77');
+  assert.equal(commit('navneet', 'receipt.create', [...lines(100, 185000), up('pos', sent)]).code, 'FORBIDDEN');
+  const r = commit('inventory', 'receipt.create', [...lines(100, 185000), up('pos', sent)], 'Goods received, invoice DC-77');
   assert.ok(r.ok, r.error);
   const after = boot('inventory').data.pos.find(p => p.id === 'po2');
   assert.equal(after.status, 'Sent to Vendor'); assert.equal(after.sentVia, 'Received directly');
   // a second, partial receipt now goes the normal way
-  const again = lines(50, 109150); again[0].row.id = 'rd2'; again[0].row.invoiceNo = 'DC-78'; again[1].row.id = 'rd2:I3'; again[1].row.receiptId = 'rd2';
+  const again = lines(50, 92500); again[0].row.id = 'rd2'; again[0].row.invoiceNo = 'DC-78'; again[1].row.id = 'rd2:I3'; again[1].row.receiptId = 'rd2';
   assert.ok(commit('inventory', 'receipt.create', again).ok);
   // a PO that is still only Pending cannot be received
   const pend = boot('admin').data.pos.find(p => p.status.startsWith('Pending'));
   if (pend) assert.match(commit('inventory', 'receipt.create', [up('pos', { ...pend, status: 'Sent to Vendor', sentVia: 'Received directly' })]).error || 'x', /not open|Only an approved|FORBIDDEN|PO/);
+});
+
+console.log('prices are never typed by Inventory');
+await test('stock prices are automatic: Inventory cannot send a price or a tax %; the Admin can still set a cost in the Sheet flow', () => {
+  const adj = (price) => [up('stock', { id: 'adj-' + Math.random().toString(36).slice(2), date: TODAY, itemId: 'I5', brand: '', type: 'ADJUST', qty: 3, note: 'count', toDept: '', receiptId: '', price, taxRate: 0 })];
+  assert.equal(commit('inventory', 'stock.adjust', adj(500)).code, 'FORBIDDEN', 'Inventory cannot adjust stock values at all');
+  assert.ok(commit('admin', 'stock.adjust', adj(0)).ok, 'a quantity-only adjustment is fine');
+  // tax % must be the item's own: I1 has no tax set -> standard 18
+  const wrongTax = rcpt(); wrongTax[0].row.id = 'rt1'; wrongTax[0].row.invoiceNo = 'TAX-1'; wrongTax[1].row.id = 'rt1:I1'; wrongTax[1].row.receiptId = 'rt1'; wrongTax[1].row.taxRate = 5;
+  assert.match(commit('inventory', 'receipt.create', wrongTax).error, /Tax % comes from the Items tab/);
 });
 
 console.log(`\n${passed} passed`);

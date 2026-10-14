@@ -1,8 +1,7 @@
 import { useState } from 'react';
 import { actions, uploadFile, useAuth, useStore } from '../store';
-import { advanceAvailable, computeReceipt, itemName, lineName, pendingQty, receivedQty, sameLine, stockOnHand, vendorOf } from '../domain';
+import { advanceAvailable, computeReceipt, itemName, itemTax, lineName, pendingQty, receivedQty, sameLine, stockOnHand, vendorOf } from '../domain';
 import { Card, DateInput, Field, FileInput, Link, go, run } from '../ui';
-import { cfg } from '../config';
 import { inr, num, round2, today } from '../utils';
 
 interface Row { itemId: string; brand: string; selected: boolean; qty: number; poQty: number; tax: number }
@@ -21,11 +20,10 @@ export default function ReceiptForm({ poId, inline, onDone }: { poId: string; in
   const [invoiceNo, setInvoiceNo] = useState('');
   const [invoiceDate, setInvoiceDate] = useState(today());
   const [receivedDate, setReceivedDate] = useState(today());
-  const [invoiceTotal, setInvoiceTotal] = useState(0);
   const [mismatch, setMismatch] = useState(false);
   const [more, setMore] = useState(false);
   const [rows, setRows] = useState<Row[]>(() =>
-    (po?.lines ?? []).map(l => ({ itemId: l.itemId, brand: l.brand, selected: false, qty: 0, poQty: l.qty, tax: cfg.taxRates.includes(18) ? 18 : cfg.taxRates[0] })));
+    (po?.lines ?? []).map(l => ({ itemId: l.itemId, brand: l.brand, selected: false, qty: 0, poQty: l.qty, tax: itemTax(s, l.itemId) })));
   const [queryNote, setQueryNote] = useState('');
 
   if (!po) return <p>PO not found.</p>;
@@ -47,9 +45,7 @@ export default function ReceiptForm({ poId, inline, onDone }: { poId: string; in
   const picked = rows.filter(r => r.selected && r.qty > 0);
   const totals = computeReceipt(picked.map(r => ({ qty: r.qty, price: price(r), taxRate: r.tax })));
   const advance = Math.min(totals.grandTotal, advanceAvailable(s, po.id));
-  const invTotal = invoiceTotal > 0 ? invoiceTotal : totals.grandTotal; // blank = same as the system total
-  const diff = round2(totals.grandTotal - invTotal);
-  const matches = Math.abs(diff) <= cfg.tolerance;
+  const invTotal = totals.grandTotal; // the total is always calculated from PO price x received quantity
   const open = rows.filter(r => pendingNow(r) > 0);
   const stillQty = rows.reduce((a, r) => a + after(r), 0);
   const stillValue = round2(rows.reduce((a, r) => a + after(r) * price(r), 0));
@@ -116,7 +112,7 @@ export default function ReceiptForm({ poId, inline, onDone }: { poId: string; in
               )}</td>
               <td className="r">{done ? '—' : after(r) > 0 ? <span className="bad"><b>{after(r)}</b><div style={{ fontSize: 12 }}>{inr(after(r) * price(r))}</div></span> : <span className="ok">0</span>}</td>
               <td className="r mut">{num(have)} → <b style={{ color: 'var(--ink)' }}>{num(have + (r.selected ? r.qty : 0))}</b></td>
-              <td><select value={r.tax} disabled={!r.selected} onChange={e => set(i, { tax: +e.target.value })}>{cfg.taxRates.map(x => <option key={x} value={x}>{x === 0 ? '0%' : x + '%'}</option>)}</select></td>
+              <td className="mut">{r.tax}%</td>
               <td className="r">{r.selected ? inr(r.qty * price(r)) : '—'}</td>
             </tr>
           );
@@ -143,20 +139,16 @@ export default function ReceiptForm({ poId, inline, onDone }: { poId: string; in
       <div className="recv-invoice">
         <Field label="Invoice / challan no. *"><input value={invoiceNo} onChange={e => setInvoiceNo(e.target.value)} placeholder="from the vendor’s paper" /></Field>
         <Field label="Received on"><DateInput value={receivedDate} onChange={setReceivedDate} /></Field>
-        <button className="btn sm" onClick={() => setMore(!more)}>{more ? '− fewer details' : '+ invoice date, total, copy'}</button>
+        <button className="btn sm" onClick={() => setMore(!more)}>{more ? '− fewer details' : '+ invoice date, copy'}</button>
         <button className="btn primary big" disabled={!picked.length || saving} onClick={submit}>{saving ? 'Saving…' : `Add to inventory${picked.length ? ` (${picked.length} item${picked.length > 1 ? 's' : ''})` : ''}`}</button>
       </div>
       {more && (
         <div className="form2" style={{ marginTop: 10 }}>
           <Field label="Invoice date"><DateInput value={invoiceDate} onChange={setInvoiceDate} /></Field>
-          <Field label="Invoice grand total (as printed)" hint="Leave blank if it is the same as the system total"><input type="number" min={0} step="0.01" value={invoiceTotal || ''} onChange={e => setInvoiceTotal(+e.target.value)} /></Field>
           <FileInput onChange={setFile} label="Invoice copy / photo (optional, saved to Google Drive)" />
           <label className="row"><input type="checkbox" checked={mismatch} onChange={e => setMismatch(e.target.checked)} /> PO and invoice do not match (lets you edit the ordered quantity)</label>
         </div>
       )}
-      {invoiceTotal > 0 && (matches
-        ? <p className="ok">✓ Matches the invoice total.</p>
-        : <p className="bad">Does not match the invoice by {inr(Math.abs(diff))}. Fix quantity / tax, edit the PO quantity if the invoice differs, or refer a price difference to the Admin.</p>)}
     </>
   );
 

@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 const dir = mkdtempSync(join(tmpdir(), 'erp-fifo-'));
 writeFileSync(join(dir, 'e.ts'), `export * from '${process.cwd()}/src/domain';`);
 await build({ entryPoints: [join(dir, 'e.ts')], bundle: true, format: 'esm', outfile: join(dir, 'b.mjs'), platform: 'node', logLevel: 'error' });
-const { fifo, fifoValue } = await import(join(dir, 'b.mjs'));
+const { fifo, fifoValue, fifoPreview } = await import(join(dir, 'b.mjs'));
 
 const rc = (id, date, qty, price) => ({ id, grnNo: id, invoiceNo: 'INV-' + id, receivedDate: date, lines: [{ itemId: 'W', brand: '', qty, price, taxRate: 0 }] });
 const s = {
@@ -36,4 +36,23 @@ s.receipts.push(rc('R4', '2026-02-02', 10, 200));
 s.stock.push({ id: 'O2', date: '2026-02-03', itemId: 'W', brand: '', type: 'OUT', qty: 20, toDept: 'P', note: '' });
 const f3 = fifo(s);
 assert.equal(f3.cost.O2, 15 * 120 + 5 * 150, '15 left of batch 2, then 5 from batch 3');
+
+// stock added WITHOUT a typed cost is priced automatically: latest purchase price, else the price list
+const s2 = {
+  stockBase: {}, items: [], pos: [],
+  vendors: [{ id: 'V1', active: true, items: [{ itemId: 'N', brand: '', price: 90 }, { itemId: 'W', brand: '', price: 999 }] }],
+  receipts: [rc('R1', '2026-01-10', 20, 120)],
+  stock: [
+    { id: 'A0', date: '2026-01-01', itemId: 'N', brand: '', type: 'ADJUST', qty: 4, note: 'Opening stock' },          // nothing bought yet -> price list (90)
+    { id: 'A1', date: '2026-01-15', itemId: 'W', brand: '', type: 'ADJUST', qty: 5, note: 'count correction' },      // latest purchase of W = 120
+    { id: 'O1', date: '2026-01-20', itemId: 'W', brand: '', type: 'OUT', qty: 22, toDept: 'P', note: '' },
+    { id: 'O2', date: '2026-01-21', itemId: 'N', brand: '', type: 'OUT', qty: 3, toDept: 'P', note: '' },
+  ],
+};
+const f4 = fifo(s2);
+assert.equal(fifoValue(f4, 'N').unknown, false); assert.equal(f4.cost.O2, 270, 'opening stock without a cost uses the price list');
+assert.equal(f4.cost.O1, 20 * 120 + 2 * 120, 'adjustment took the latest purchase price (120)');
+const f5 = fifo({ ...s2, vendors: [] });
+assert.equal(fifoValue(f5, 'N').unknown, true, 'no purchase and no price list: flagged, never invented');
+assert.equal(fifoPreview(f4, 'N', '', 1).cost, 90); assert.equal(fifoPreview(f4, 'N', '', 5).short, 4);
 console.log('FIFO tests passed');
