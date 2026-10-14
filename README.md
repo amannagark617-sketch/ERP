@@ -176,7 +176,11 @@ Emailing/WhatsApp-ing the PDF is still a manual attach (a browser can't attach f
 - If Google changes something, only `apps-script/host.gs` needs touching – the business rules are separate.
 
 ## Receiving goods (partial deliveries)
-Inventory opens **Goods Receipt**, picks a PO and **all its items load automatically** (ticked, with the pending quantity filled in). They type the quantity actually received per line; anything short stays **pending with the vendor**:
+Inventory opens **Goods Receipt** – the *receiving desk*: waiting POs are cards (delayed ones first) with their items listed as chips. **Check items** opens the PO's items as a checklist right there, no extra page:
+- Tick an item = received in full. **Everything arrived in full** ticks the whole PO. For a short delivery use the − / + stepper or type the quantity.
+- Each line shows Ordered / Already in / Pending / **Short** (with ₹) and **In stock → after**.
+- The only thing to type is the vendor's invoice / challan number; one big **Add to inventory** button saves it.
+Anything short stays **pending with the vendor**:
 - The form shows *Ordered / Received before / Pending / Received now / Still pending after* and the ₹ value of what is still pending.
 - Only the received quantity goes into stock, and the invoice amount (and tax) is calculated on the received quantity only.
 - The PO becomes *Partially Received*, shows pending quantity **and pending value** on every line, and stays open until the balance arrives (a later receipt can complete it).
