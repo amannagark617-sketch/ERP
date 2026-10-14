@@ -30,7 +30,7 @@ export default function ReceiptForm({ poId, inline, onDone }: { poId: string; in
 
   if (!po) return <p>PO not found.</p>;
   if (!can('receipt.create')) return <div className="note">Goods receipt is done by Inventory (Factory). Your role is not allowed to do this.</div>;
-  if (po.status !== 'Sent to Vendor') return <div className="warn">This PO has not been sent to the vendor yet.</div>;
+  if (po.status !== 'Sent to Vendor' && po.status !== 'Approved') return <div className="warn">This PO is not approved yet, so goods cannot be received against it.</div>;
 
   const vendor = vendorOf(s, po.vendorId)!;
   const price = (r: { itemId: string; brand: string }) => po.lines.find(l => sameLine(l, r))!.price;

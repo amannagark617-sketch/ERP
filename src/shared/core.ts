@@ -60,7 +60,7 @@ const ACTIONS: Record<string, { tables: TableKey[]; edit: TableKey[] }> = {
   'po.reject': { tables: ['pos'], edit: ['pos'] },
   'po.send': { tables: ['pos'], edit: ['pos'] },
   'advance.pay': { tables: ['pos', 'payments'], edit: ['pos'] },
-  'receipt.create': { tables: ['receipts', 'stock', 'poLines'], edit: ['poLines'] },
+  'receipt.create': { tables: ['receipts', 'stock', 'poLines', 'pos'], edit: ['poLines', 'pos'] },
   'invoice.accept': { tables: ['receipts'], edit: ['receipts'] },
   'payment.make': { tables: ['payments'], edit: [] },
   'opening.add': { tables: ['receipts'], edit: [] },
@@ -360,6 +360,11 @@ function guards(action: string, user: User, ops: Op[], db: Db) {
     } else if (action === 'po.send') {
       if (!cur || cur.status !== 'Approved' || cur.advanceStatus === 'Requested' || p.status !== 'Sent to Vendor') bad('PO cannot be sent now');
       PO_FROZEN.forEach(f => { if (cur[f] !== p[f]) bad('Only sending details can change here'); });
+    } else if (action === 'receipt.create') {
+      // Goods turned up for an approved PO: it counts as sent ("received directly"). Nothing else on the PO may change.
+      if (!cur || cur.status !== 'Approved' || p.status !== 'Sent to Vendor' || p.sentVia !== 'Received directly') bad('Only an approved PO can be marked as received directly');
+      PO_FROZEN.forEach(f => { if (cur[f] !== p[f]) bad('Only the sending details can change here'); });
+      if (cur.advanceStatus !== p.advanceStatus) bad('Advance status cannot change here');
     } else if (action === 'advance.pay') {
       if (!cur || cur.advanceStatus !== 'Requested' || ['Advance Paid', 'Fully Paid'].indexOf(p.advanceStatus) < 0 || p.status !== cur.status) bad('No advance is pending for this PO');
       PO_FROZEN.forEach(f => { if (cur[f] !== p[f]) bad('Only the advance status can change here'); });
@@ -390,7 +395,9 @@ function guards(action: string, user: User, ops: Op[], db: Db) {
     if (rs.length !== 1) bad('One receipt at a time');
     const r = rs[0];
     const po = db.find('pos', r.poId);
-    if (!po || po.status !== 'Sent to Vendor' || r.type !== 'Invoice' || r.accepted || r.vendorId !== po.vendorId) bad('PO is not open for receipt');
+    const poUp = v.ups('pos');
+    const receivable = !!po && (po.status === 'Sent to Vendor' ? poUp.length === 0 : po.status === 'Approved' && poUp.length === 1 && poUp[0].id === po.id);
+    if (!po || !receivable || r.type !== 'Invoice' || r.accepted || r.vendorId !== po.vendorId) bad('PO is not open for receipt');
     if (!r.invoiceNo) bad('Enter the invoice number', 'ERROR');
     if (db.rows('receipts').some(x => lc(x.invoiceNo) === lc(r.invoiceNo) && x.vendorId === r.vendorId && x.type === 'Invoice')) bad('This invoice number is already booked for this vendor', 'ERROR');
     const ins = v.ups('stock');

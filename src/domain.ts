@@ -40,6 +40,8 @@ export const outstanding = (s: AppState, poId: string) => Math.max(0, round2(rec
 export const advanceAvailable = (s: AppState, poId: string) => Math.max(0, round2(advancePaid(s, poId) - advanceAdjusted(s, poId)));
 
 export const isOpenPO = (s: AppState, po: PurchaseOrder) => po.status === 'Sent to Vendor' && totalPending(s, po) > 0;
+/** A PO the storekeeper can receive goods against: approved (not yet marked sent) or sent, with something still pending. */
+export const isReceivable = (s: AppState, po: PurchaseOrder) => (po.status === 'Sent to Vendor' || po.status === 'Approved') && totalPending(s, po) > 0;
 export const isDelayed = (s: AppState, po: PurchaseOrder) => isOpenPO(s, po) && po.expectedDate < today();
 
 export const receiptPaid = (s: AppState, r: Receipt) => sum(s.payments.filter(p => p.receiptId === r.id));

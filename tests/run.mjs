@@ -571,4 +571,34 @@ await test('the PDF that was sent is stored on the PO (po.send may set it, nothi
   assert.equal(sheetRow('PurchaseOrders', x => x['PO Key'] === 'pv4')['PO PDF sent (Drive ID)'], 'file-abc');
 });
 
+console.log('direct receiving');
+await test('Inventory can receive an APPROVED PO directly: it becomes sent, and nothing else on the PO may change', () => {
+  const po2 = boot('admin').data.pos.find(p => p.id === 'po2');
+  const ap = commit('factoryhead', 'po.approve', [up('pos', { ...po2, status: 'Approved', step: 1, advanceStatus: po2.advanceRequired ? 'Requested' : 'Not Required' })], '');
+  assert.ok(ap.ok, ap.error);
+  const approved = ap.applied[0].row;
+  const lines = (qty, total) => [
+    up('receipts', { id: 'rd1', grnNo: '', type: 'Invoice', poId: 'po2', vendorId: 'V2', invoiceNo: 'DC-77', invoiceDate: TODAY, receivedDate: TODAY, subtotal: qty * 1850, taxTotal: qty * 1850 * 0.18, grandTotal: total, advanceAdjusted: 0, payable: total, dueDate: TODAY, accepted: false, acceptedDate: '', invoiceFile: '' }),
+    up('stock', { id: 'rd1:I3', date: TODAY, itemId: 'I3', type: 'IN', qty, price: 1850, taxRate: 18, receiptId: 'rd1', toDept: '', note: '' }),
+  ];
+  const sent = { ...approved, status: 'Sent to Vendor', sentVia: 'Received directly', sentTo: 'Factory' };
+  // without marking the PO as received-directly: refused
+  assert.match(commit('inventory', 'receipt.create', lines(100, 218300)).error, /not open for receipt/);
+  // trying to slip other PO changes in with it: refused
+  assert.match(commit('inventory', 'receipt.create', [...lines(100, 218300), up('pos', { ...sent, terms: 'changed' })]).error, /sending details/);
+  assert.match(commit('inventory', 'receipt.create', [...lines(100, 218300), up('pos', { ...sent, expectedDate: '2030-01-01' })]).error, /sending details/);
+  // other roles still cannot
+  assert.equal(commit('navneet', 'receipt.create', [...lines(100, 218300), up('pos', sent)]).code, 'FORBIDDEN');
+  const r = commit('inventory', 'receipt.create', [...lines(100, 218300), up('pos', sent)], 'Goods received, invoice DC-77');
+  assert.ok(r.ok, r.error);
+  const after = boot('inventory').data.pos.find(p => p.id === 'po2');
+  assert.equal(after.status, 'Sent to Vendor'); assert.equal(after.sentVia, 'Received directly');
+  // a second, partial receipt now goes the normal way
+  const again = lines(50, 109150); again[0].row.id = 'rd2'; again[0].row.invoiceNo = 'DC-78'; again[1].row.id = 'rd2:I3'; again[1].row.receiptId = 'rd2';
+  assert.ok(commit('inventory', 'receipt.create', again).ok);
+  // a PO that is still only Pending cannot be received
+  const pend = boot('admin').data.pos.find(p => p.status.startsWith('Pending'));
+  if (pend) assert.match(commit('inventory', 'receipt.create', [up('pos', { ...pend, status: 'Sent to Vendor', sentVia: 'Received directly' })]).error || 'x', /not open|Only an approved|FORBIDDEN|PO/);
+});
+
 console.log(`\n${passed} passed`);

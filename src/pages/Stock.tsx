@@ -93,7 +93,7 @@ export default function Stock() {
           <div className="tablewrap"><table>
             <thead><tr><th>Date</th><th>Item</th><th>Brand</th><th>Type</th><th className="r">Qty</th><th>Reference / issued to</th><th className="r">FIFO cost (₹)</th><th>Note</th><th>By</th></tr></thead>
             <tbody>{log.slice(0, limit).map(m => (
-              <tr key={m.key}><td>{fmtDate(m.date)}</td><td>{itemName(s, m.itemId)}</td><td>{normBrand(m.brand) ? <span className="brandtag" style={{ marginLeft: 0 }}>{normBrand(m.brand)}</span> : <span className="mut">—</span>}</td>
+              <tr key={m.key}><td className="nw">{fmtDate(m.date)}</td><td>{itemName(s, m.itemId)}</td><td>{normBrand(m.brand) ? <span className="brandtag" style={{ marginLeft: 0 }}>{normBrand(m.brand)}</span> : <span className="mut">—</span>}</td>
                 <td><span className={m.type === 'IN' ? 'ok' : m.type === 'OUT' ? 'bad' : 'mut'}>{m.type}</span></td>
                 <td className="r">{m.type === 'OUT' || (m.type === 'ADJUST' && m.qty < 0) ? '−' : '+'}{num(Math.abs(m.qty))}</td>
                 <td>{m.ref}</td><td className="r">{f.cost[m.key] !== undefined ? num(f.cost[m.key]) : ''}</td><td className="mut">{m.note}</td><td className="mut">{m.by}</td></tr>

@@ -265,7 +265,10 @@ export const actions = {
     let note = `Goods received, invoice ${input.invoiceNo.trim()}`;
     return mutate('receipt.create', () => note, s => {
       const po = findPO(s, input.poId);
-      if (po.status !== 'Sent to Vendor') throw new Error('PO has not been sent to the vendor');
+      if (po.status === 'Approved') { // goods arrived before Purchase marked it sent: receiving counts as sent
+        po.status = 'Sent to Vendor'; po.sentVia = 'Received directly'; po.sentTo = 'Factory';
+        note += ' (PO was not marked as sent – received directly)';
+      } else if (po.status !== 'Sent to Vendor') throw new Error('PO is not approved yet');
       const invNo = input.invoiceNo.trim();
       if (!invNo) throw new Error('Enter the invoice number');
       if (s.receipts.some(r => r.type === 'Invoice' && r.invoiceNo.toLowerCase() === invNo.toLowerCase() && r.vendorId === po.vendorId)) {

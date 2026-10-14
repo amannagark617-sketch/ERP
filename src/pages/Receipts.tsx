@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useStore } from '../store';
-import { isDelayed, isOpenPO, itemName, pendingValue, receivedQty, totalPending, vendorOf } from '../domain';
+import { isDelayed, isOpenPO, isReceivable, itemName, pendingValue, receivedQty, totalPending, vendorOf } from '../domain';
 import { Badge, Card, Empty, Link, Stat } from '../ui';
 import { fmtDate, inr, today } from '../utils';
 import ReceiptForm from './ReceiptForm';
@@ -12,10 +12,9 @@ export default function Receipts() {
   const [openId, setOpenId] = useState<string>();
   const [done, setDone] = useState('');
   const match = (p: { poNo: string; vendorId: string }) => !q || `${p.poNo} ${vendorOf(s, p.vendorId)?.name ?? ''}`.toLowerCase().includes(q.toLowerCase());
-  const waiting = s.pos.filter(p => isOpenPO(s, p) && match(p))
+  const waiting = s.pos.filter(p => isReceivable(s, p) && match(p))
     .sort((a, b) => Number(isDelayed(s, b)) - Number(isDelayed(s, a)) || a.expectedDate.localeCompare(b.expectedDate));
-  const notSent = s.pos.filter(p => p.status === 'Approved' && match(p)); // approved but Purchase has not marked it as sent yet
-  const all = s.pos.filter(p => isOpenPO(s, p));
+  const all = s.pos.filter(p => isReceivable(s, p));
   const grns = s.receipts.filter(r => r.type === 'Invoice').sort((a, b) => b.receivedDate.localeCompare(a.receivedDate) || b.grnNo.localeCompare(a.grnNo));
   const todayCount = grns.filter(r => r.receivedDate === today()).length;
 
@@ -41,7 +40,7 @@ export default function Receipts() {
           <section key={p.id} className={'card po-card' + (isOpen ? ' open' : '') + (delayed ? ' late' : '')}>
             <header className="po-card-h" onClick={() => setOpenId(isOpen ? undefined : p.id)}>
               <div>
-                <b style={{ fontSize: 16 }}>{p.poNo}</b> · {vendorOf(s, p.vendorId)?.name} {delayed && <Badge>Delay</Badge>}
+                <b style={{ fontSize: 16 }}>{p.poNo}</b> · {vendorOf(s, p.vendorId)?.name} {delayed && <Badge>Delay</Badge>} {p.status === 'Approved' && <span className="brandtag">Approved · not sent yet</span>}
                 <div className="mut">Expected {fmtDate(p.expectedDate)} · {p.lines.length} item line(s) · <Link to={`/pos/${p.id}`}>open PO</Link></div>
               </div>
               <div className="po-card-r">
@@ -61,20 +60,13 @@ export default function Receipts() {
         );
       })}
 
-      {notSent.length > 0 && (
-        <Card title="Approved – waiting to be marked as sent">
-          <p className="mut" style={{ marginTop: 0 }}>Goods can be received once Purchase has marked the PO as sent to the vendor.</p>
-          <table><tbody>{notSent.map(p => <tr key={p.id}><td><Link to={`/pos/${p.id}`}>{p.poNo}</Link></td><td>{vendorOf(s, p.vendorId)?.name}</td><td className="mut">{p.advanceStatus === 'Requested' ? 'Advance not paid yet' : 'Not marked as sent yet'}</td></tr>)}</tbody></table>
-        </Card>
-      )}
-
       <Card title="Goods received so far">
         {grns.length === 0 ? <Empty>Nothing received yet.</Empty> : (
           <div className="tablewrap"><table>
             <thead><tr><th>GRN</th><th>PO</th><th>Invoice</th><th>Factory In</th><th className="r">Items</th><th className="r">Grand total</th></tr></thead>
             <tbody>{grns.slice(0, 60).map(r => {
               const po = s.pos.find(p => p.id === r.poId);
-              return <tr key={r.id}><td>{r.grnNo || '…'}</td><td>{po ? <Link to={`/pos/${po.id}`}>{po.poNo}</Link> : '—'}</td><td>{r.invoiceNo} · {fmtDate(r.invoiceDate)}</td><td>{fmtDate(r.receivedDate)}</td><td className="r">{r.lines.length}</td><td className="r">{inr(r.grandTotal)}</td></tr>;
+              return <tr key={r.id}><td>{r.grnNo || '…'}</td><td>{po ? <Link to={`/pos/${po.id}`}>{po.poNo}</Link> : '—'}</td><td>{r.invoiceNo} · {fmtDate(r.invoiceDate)}</td><td className="nw">{fmtDate(r.receivedDate)}</td><td className="r">{r.lines.length}</td><td className="r">{inr(r.grandTotal)}</td></tr>;
             })}</tbody>
           </table></div>
         )}

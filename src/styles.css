@@ -86,3 +86,17 @@ input[type=checkbox].big { width:22px; height:22px; cursor:pointer; }
 .recv-invoice { display:flex; align-items:flex-end; gap:12px; flex-wrap:wrap; }
 .recv-invoice .field { margin:0; min-width:200px; }
 .btn.big { padding:10px 18px; font-size:15px; margin-left:auto; }
+
+/* ---- dashboard: quick actions + insight cards ---- */
+.quick .btn { padding:9px 16px; font-size:14px; }
+.pill { display:inline-block; margin-left:8px; min-width:20px; padding:0 6px; border-radius:99px; background:var(--logo-red); color:#fff; font-size:12px; font-weight:700; text-align:center; }
+.grid2 { display:grid; gap:16px; grid-template-columns:repeat(auto-fit,minmax(340px,1fr)); }
+.grid2 > .card { margin-bottom:16px; }
+.bars { display:flex; flex-direction:column; gap:8px; }
+.bar-row { display:grid; grid-template-columns:minmax(110px,170px) 1fr auto; gap:10px; align-items:center; font-size:13.5px; }
+.bar-row span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.bar { background:var(--line-soft); border-radius:99px; height:10px; overflow:hidden; }
+.bar i { display:block; height:100%; background:var(--brand); border-radius:99px; min-width:2px; }
+.bar-row.bad .bar i { background:var(--logo-red); } .bar-row.amber .bar i { background:#d9962b; } .bar-row.ok .bar i { background:var(--green); } .bar-row.mut .bar i { background:#a0a0a8; }
+ul.plain { margin:0; padding-left:18px; } ul.plain li { margin:5px 0; }
+.nw { white-space:nowrap; }

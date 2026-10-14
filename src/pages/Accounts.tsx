@@ -123,7 +123,7 @@ export default function Accounts() {
             <tbody>{[...s.payments].sort((a, b) => b.date.localeCompare(a.date)).map(p => {
               const po = poOf(s, p.poId ?? '');
               const r = s.receipts.find(x => x.id === p.receiptId);
-              return <tr key={p.id}><td>{fmtDate(p.date)}</td><td>{p.kind}</td><td>{vendorOf(s, r?.vendorId ?? po?.vendorId ?? '')?.name}</td>
+              return <tr key={p.id}><td className="nw">{fmtDate(p.date)}</td><td>{p.kind}</td><td>{vendorOf(s, r?.vendorId ?? po?.vendorId ?? '')?.name}</td>
                 <td>{[po?.poNo, r?.invoiceNo].filter(Boolean).join(' · ')}</td><td className="r">{inr(p.amount)}</td><td><FileLink id={p.screenshot} /></td></tr>;
             })}</tbody>
           </table></div>

@@ -185,7 +185,15 @@ Anything short stays **pending with the vendor**:
 - Only the received quantity goes into stock, and the invoice amount (and tax) is calculated on the received quantity only.
 - The PO becomes *Partially Received*, shows pending quantity **and pending value** on every line, and stays open until the balance arrives (a later receipt can complete it).
 - The invoice grand total can be left blank when it equals the system total.
-- Goods can be received once Purchase has marked the PO as sent (approved POs not yet sent are listed separately).
+- Goods can be received against any **approved** PO straight away – Purchase does not have to mark it as sent first. Receiving an approved-but-unsent PO marks it "Sent to Vendor – Received directly" (shown in the history). Nothing else on the PO can change.
+
+## Dashboards for every role
+Each role's Dashboard opens with **one-tap buttons** for what it does most (New PO, Approvals, Receive goods, Issue stock, Payments & invoices, Items & prices) and then only the cards that role works with:
+- **Factory Head / Admin (managers):** purchase value by month, top vendors, delivery performance (% of POs that arrived by the expected date and which vendors are late most), a "needs your attention" list, POs by stage, payables due.
+- **Accounts:** payables – overdue / due in 7 days / later / invoices not yet accepted (with an MSME-overdue warning).
+- **Inventory / Purchase:** stock watch – items below minimum and whether an open PO already covers them ("Covered by open PO" or "Order needed").
+- **Purchase:** POs by stage, drafts and rejected POs to fix.
+Approve / Reject can be done straight from the dashboard or the PO list.
 
 ## Who can see paid / pending
 - **PO list & PO page:** Payment status (Paid / Part paid / Unpaid), outstanding amount, pending quantity and pending value.

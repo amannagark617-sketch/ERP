@@ -127,7 +127,7 @@ export default function PoDetail({ id }: { id: string }) {
           )}
         </Card>
       )}
-      {can('receipt.create') && sent && pendingTotal > 0 && (
+      {can('receipt.create') && (sent || po.status === 'Approved') && pendingTotal > 0 && (
         <Card title="Goods receipt"><button className="btn primary" onClick={() => go(`/receipts/${po.id}/new`)}>Receive goods against this PO</button></Card>
       )}
 
@@ -136,7 +136,7 @@ export default function PoDetail({ id }: { id: string }) {
           <div className="tablewrap"><table>
             <thead><tr><th>GRN</th><th>Invoice</th><th>Received</th><th className="r">Invoice total</th>{money && <><th className="r">Advance adj.</th><th className="r">Payable</th><th className="r">Paid</th><th className="r">Balance</th></>}<th>Accounts</th><th>Invoice copy</th></tr></thead>
             <tbody>{invoicesOf(s, po.id).map(r => (
-              <tr key={r.id}><td>{r.grnNo || '…'}</td><td>{r.invoiceNo}<br /><span className="mut">{fmtDate(r.invoiceDate)}</span></td><td>{fmtDate(r.receivedDate)}</td>
+              <tr key={r.id}><td>{r.grnNo || '…'}</td><td>{r.invoiceNo}<br /><span className="mut">{fmtDate(r.invoiceDate)}</span></td><td className="nw">{fmtDate(r.receivedDate)}</td>
                 <td className="r">{inr(r.grandTotal)}</td>{money && <><td className="r">{inr(r.advanceAdjusted)}</td><td className="r">{inr(r.payable)}</td>
                 <td className="r">{inr(receiptPaid(s, r))}</td><td className="r">{inr(receiptBalance(s, r))}</td></>}<td>{r.accepted ? <span className="ok">Accepted</span> : <span className="mut">Awaiting</span>}</td><td><FileLink id={r.invoiceFile} /></td></tr>
             ))}</tbody>

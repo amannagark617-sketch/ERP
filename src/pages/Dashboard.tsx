@@ -1,8 +1,9 @@
 import { useAuth, useSnap, useStore } from '../store';
-import { approvalRoute, displayStatus, isDelayed, isLowStock, isOpenPO, outstanding, poValue, receiptBalance, vendorOf } from '../domain';
+import { approvalRoute, displayStatus, isDelayed, isLowStock, isOpenPO, isReceivable, outstanding, poValue, receiptBalance, vendorOf } from '../domain';
 import { Badge, Card, Empty, Link, QuickApprove, Stat } from '../ui';
 import { fmtDate, inr, today } from '../utils';
 import type { PurchaseOrder } from '../types';
+import { ManagerInsights, PayablesAgeing, PoPipeline, QuickActions, StockWatch } from './Insights';
 
 export default function Dashboard() {
   const s = useStore();
@@ -22,7 +23,7 @@ export default function Dashboard() {
   if (can('po.approve')) s.pos.filter(p => p.status === 'Pending ' + role).forEach(p => inbox.push({ to: `/pos/${p.id}`, text: `Approve ${p.poNo} · ${name(p.vendorId)}`, sub: `${inr(poValue(p))} · route ${approvalRoute(p).join(' → ')}`, po: p }));
   if (can('advance.pay')) s.pos.filter(p => p.advanceStatus === 'Requested').forEach(p => inbox.push({ to: '/accounts', text: `Pay advance for ${p.poNo}`, sub: inr(p.advanceAmount) }));
   if (can('invoice.accept')) s.receipts.filter(r => !r.accepted).forEach(r => inbox.push({ to: '/accounts', text: `Accept invoice ${r.invoiceNo}`, sub: inr(r.grandTotal) }));
-  if (can('receipt.create')) s.pos.filter(p => isOpenPO(s, p)).forEach(p => inbox.push({ to: `/receipts/${p.id}/new`, text: `Receive goods for ${p.poNo}`, sub: name(p.vendorId) }));
+  if (can('receipt.create')) s.pos.filter(p => isReceivable(s, p)).forEach(p => inbox.push({ to: `/receipts/${p.id}/new`, text: `Receive goods for ${p.poNo}`, sub: name(p.vendorId) }));
   if (can('master.manage')) s.pos.forEach(p => p.lines.filter(l => l.queryStatus === 'Open').forEach(l =>
     inbox.push({ to: '/items', text: `Price query on ${p.poNo}`, sub: l.queryNote ?? '' })));
   const low = s.items.filter(i => i.active && isLowStock(s, i));
@@ -37,6 +38,7 @@ export default function Dashboard() {
   return (
     <>
       <h2>Dashboard <span className="mut" style={{ fontSize: 14, fontWeight: 400 }}>· {user?.role} · {user?.department}</span></h2>
+      <QuickActions />
       {/* Each role gets only the numbers it works with */}
       <div className="grid" style={{ marginBottom: 16 }}>
         {(can('po.save') || can('receipt.create') || can('po.approve')) && <Stat label="Open POs" value={s.pos.filter(p => isOpenPO(s, p)).length} />}
@@ -54,6 +56,12 @@ export default function Dashboard() {
           ))}</tbody></table>
         )}
       </Card>
+      {can('po.approve') && <ManagerInsights />}
+      <div className="grid2">
+        {(can('po.save') || can('po.approve')) && sees('Purchase Orders') && <PoPipeline />}
+        {sees('Accounts') && (can('payment.make') || can('invoice.accept') || can('po.approve')) && <PayablesAgeing />}
+      </div>
+      {sees('Stock') && <StockWatch />}
       <Card title="Recent purchase orders" actions={sees('Purchase Orders') && <Link to="/pos">View all</Link>}>
         {s.pos.length === 0 ? <Empty>No purchase orders yet.</Empty> : (
           <div className="tablewrap"><table>

@@ -47,7 +47,7 @@ export interface PurchaseOrder extends Sys {
   advanceStatus: AdvanceStatus;
   route: string[];
   step: number;
-  sentVia?: 'Email' | 'WhatsApp' | '';
+  sentVia?: 'Email' | 'WhatsApp' | 'Received directly' | '';
   sentTo?: string;
   /** The PDF that was sent to the vendor (Drive file id) */
   poFile?: string;
